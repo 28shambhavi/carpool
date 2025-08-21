@@ -1,0 +1,9 @@
+[submodule "src/pytorch_mppi"]
+	path = src/pytorch_mppi
+	url = git@github.com:28shambhavi/pytorch_mppi.git
+[submodule "src/CL-CBS"]
+	path = src/CL-CBS
+	url = git@github.com:28shambhavi/CL-CBS.git
+[submodule "src/mushr-mujoco-gym"]
+	path = src/mushr-mujoco-gym
+	url = git@github.com:28shambhavi/mushr-mujoco-gym.git
