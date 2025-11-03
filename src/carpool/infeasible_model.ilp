@@ -1,0 +1,17 @@
+\ Model Optimal_Contact_Points_2D_copy
+\ LP format - for model browsing. Use MPS format to capture full model detail.
+\ Signature: 0x55296dbbae9fa84
+Minimize
+ 
+Subject To
+ pusher1_length_constraint: - p1_l_primary + p1_r_primary = 0.2
+ pusher2_length_constraint: - p2_l_primary + p2_r_primary = 0.2
+ min_dist_bw_cars_constraint: p2_l_primary - p1_r_primary >= 0.2
+ p2_primary_def: - 0.5 p2_l_primary - 0.5 p2_r_primary + p2_primary = 0
+Bounds
+ p1_l_primary >= -0.15
+ p2_l_primary free
+ p1_r_primary free
+ p2_r_primary free
+ -infinity <= p2_primary <= 0.15
+End

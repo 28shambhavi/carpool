@@ -1,0 +1,58 @@
+ENV_NAME: MultiAgentMushrBlockObstacles-v0
+noise_sigma: 
+  - - 0.03
+    - 0
+    - 0
+    - 0
+  - - 0
+    - 0.05
+    - 0
+    - 0
+  - - 0
+    - 0
+    - 0.03
+    - 0
+  - - 0
+    - 0
+    - 0
+    - 0.05
+noise_mu:
+  - 0.01
+  - 0.01
+  - 0.01
+  - 0.01
+start_pose: 
+  - 0.0
+  - 0.0
+  - 1.57
+goal_pose:
+  - 2.0
+  - 2.0
+  - -1.56
+block_pose:
+  - 2.3
+  - 2.0
+  - 0.0
+ACTION_LOW:
+  - -0.08
+  - -1
+  - -0.08
+  - -1
+ACTION_HIGH:
+  - 0.08
+  - 1
+  - 0.08
+  - 1
+nx: 12
+nu: 4
+K_dd: 0.5
+min_ld: 0.2
+max_ld: 1
+L: 0.2965
+W: 0.2
+block_edge: 0.2
+dt: 0.05
+render_mode: human
+show_animation: False
+lambda_: 0.01
+min_turn_radius: 1.087
