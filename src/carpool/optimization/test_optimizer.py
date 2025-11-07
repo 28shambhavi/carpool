@@ -17,13 +17,11 @@ from matplotlib.lines import Line2D
 def plot_full_result_v2(result, object_twist, length, breadth,
                         scale_force=0.02, scale_normal=0.05, scale_resultant=0.06,
                         ensure_inward_normals=True, show=True, ax=None,
-                        # new args for displaced rectangle
                         plot_displaced=True, displacement_dt=1.0, displacement_scale=1.0,
                         displaced_linestyle='--', displaced_color='gray', displaced_alpha=0.9,
                         displaced_linewidth=2.0):
     """
     Robust full-scene plotter for your optimize(...) result.
-
     New behavior:
       - If `result` contains 'object_pose' = [x,y,theta] -> plot dotted rectangle at that pose.
       - Else if `result` contains 'object_twist' = [vx,vy,omega] -> integrate twist for `displacement_dt`
@@ -236,11 +234,18 @@ def plot_full_result_v2(result, object_twist, length, breadth,
     return ax
 
 def plot_single_problem():
-    lo = LoadOptimization(sweep=False)
-    x_length = 1.0
-    y_length = 0.6
-    object_twist= [0.0, 1.0, -0.18]
-    res = lo.optimize(length=x_length, breadth=y_length, object_twist=object_twist, orientation='longitudinal')
+    x_length = 0.14
+    y_length = 0.8
+    lo = LoadOptimization(sweep=False, object_shape=(x_length, y_length))
+
+    object_twist= [0.66774, -0.0371, 0.7434]
+    # object_twist[0.66774278 - 0.03713503
+    # 0.74346524]
+    # object
+    # shape
+    # 0.14
+    # 0.8
+    res = lo.optimize(object_twist=object_twist, orientation='lateral')
     for c in res["contacts"]:
         print(c["name"], "pos =", c["pos"], "normal =", c["normal_force"], "tangent =", c["tangent_force"])
 
@@ -368,5 +373,5 @@ def sweep_velocities(num_points=10000, shapes=None, out_dir="sweep_results", ver
 if __name__ == "__main__":
     # Example: run the full sweep (10k directions => 20k optimizations per shape set)
     # WARNING: heavy. adjust num_points for quick tests.
-    sweep_velocities(num_points=20000, shapes=[(1.0, 1.2), (1.0, 1.6), (1.0, 1.0), (0.8, 0.8)], out_dir="sweep_results", verbose=True)
-    # plot_single_problem()
+    # sweep_velocities(num_points=20000, shapes=[(1.0, 1.2), (1.0, 1.6), (1.0, 1.0), (0.8, 0.8)], out_dir="sweep_results", verbose=True)
+    plot_single_problem()

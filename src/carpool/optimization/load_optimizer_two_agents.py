@@ -1,9 +1,11 @@
 import math
+import pdb
 import numpy as np
 import gurobipy as gp
 from gurobipy import GRB
 from ..utils.angle_utils import object_frame_to_global_frame, global_frame_to_object_frame, wrap
-
+import matplotlib.pyplot as plt
+import numpy as np
 DYNAMIC_FRICTION_COEFF_MU = 0.6
 STATIC_FRICTION_COEFF_MU = 0.6
 FLOOR_FRICTION_COEFF_MU = 0.6
@@ -17,93 +19,211 @@ def wrap(a):
     return (a + np.pi) % (2 * np.pi) - np.pi
 
 class LoadOptimization:
-    def __init__(self, sweep=False):
+    def __init__(self, object_shape, sweep=False):
+        self.length = object_shape[0]
+        self.breadth = object_shape[1]
+        self.sweep = sweep
+
         with open('/Users/shambhavisingh/rob/carpool/src/carpool/optimization/gurobi_license.txt', 'r') as file:
             lines = file.read().splitlines()
         access_id, secret_id, license_id = lines[0], lines[1], lines[2]
-        self.sweep = sweep
-        output_flag = 0 if sweep else 1
         self.gurobi_env = gp.Env(params={
             "WLSAccessID": str(access_id),
             "WLSSecret": str(secret_id),
             "LicenseID": int(license_id),
-            "OutputFlag": output_flag
+            "OutputFlag": 1
         })
 
-    def object_twist_to_car_poses(self, length, breadth, object_twist):
-        args = self.optimize(length, breadth, object_twist)
 
-        if args is not None:
-            contacts = args.get("contacts", None)
-            positions = []
-            normals = []
-            tangents = []
-            for c in contacts:
-                pos = np.asarray(c["pos"], dtype=float)
-                force = np.asarray(c["force"], dtype=float)
-                normal = np.asarray(c["normal_force"], dtype=float)
-                tangent = np.asarray(c["tangent_force"], dtype=float)
-                positions.append(pos)
-                normals.append(normal)
-                tangents.append(tangent)
-            p1_x = (positions[0][0] + positions[1][0])*0.5
-            p1_y = (positions[0][1] + positions[1][1])*0.5
-            p2_x = (positions[2][0] + positions[3][0])*0.5
-            p2_y = (positions[2][1] + positions[3][1])*0.5
+    def plot_global_poses_with_yaw(self, object_global_pose, car1_pose, car2_pose, arc, curr_car1, curr_car2):
+        """
+        Plot the object's global pose and the two car poses (p1, p2) with yaw arrows.
 
-            if p1_y < 0: p1_heading = np.pi/2
-            else: p1_heading = -np.pi/2
-            if p2_y < 0: p2_heading = np.pi/2
-            else: p2_heading = -np.pi/2
+        Parameters:
+        - object_global_pose: tuple (x, y, theta) - the object's global pose
+        - car1_pose: tuple (x, y, theta) - first car's global pose (p1)
+        - car2_pose: tuple (x, y, theta) - second car's global pose (p2)
+        - arc: optional tuple (start_x, start_y, start_yaw, end_x, end_y, end_yaw, k)
+        """
+        fig, ax = plt.subplots(figsize=(10, 10))
 
-            car1_pose = object_frame_to_global_frame((p1_x, p1_y, wrap(p1_heading)), object_twist)
-            car2_pose = object_frame_to_global_frame((p2_x, p2_y, wrap(p2_heading)), object_twist)
+        # Arrow length for visualization
+        arrow_length = 0.5
+
+        # Plot object's global pose
+        obj_x, obj_y, obj_theta = object_global_pose
+        obj_dx = arrow_length * np.cos(obj_theta)
+        obj_dy = arrow_length * np.sin(obj_theta)
+        ax.plot(obj_x, obj_y, 'ro', markersize=12, label='Object Pose')
+        ax.arrow(obj_x, obj_y, obj_dx, obj_dy,
+                 head_width=0.15, head_length=0.1, fc='red', ec='red', linewidth=2)
+
+        # Plot car1 pose (p1)
+        if car1_pose is not None:
+            p1_x, p1_y, p1_theta = car1_pose
+            p1_dx = arrow_length * np.cos(p1_theta)
+            p1_dy = arrow_length * np.sin(p1_theta)
+            ax.plot(p1_x, p1_y, 'bo', markersize=10, label='Car 1 Pose (p1)')
+            ax.arrow(p1_x, p1_y, p1_dx, p1_dy,
+                     head_width=0.15, head_length=0.1, fc='blue', ec='blue', linewidth=2)
+
+        # Plot car2 pose (p2)
+        if car2_pose is not None:
+            p2_x, p2_y, p2_theta = car2_pose
+            p2_dx = arrow_length * np.cos(p2_theta)
+            p2_dy = arrow_length * np.sin(p2_theta)
+            ax.plot(p2_x, p2_y, 'go', markersize=10, label='Car 2 Pose (p2)')
+            ax.arrow(p2_x, p2_y, p2_dx, p2_dy,
+                     head_width=0.15, head_length=0.1, fc='green', ec='green', linewidth=2)
+
+        if curr_car1 is not None:
+            p1_x, p1_y, p1_theta = curr_car1
+            p1_dx = arrow_length * np.cos(p1_theta)
+            p1_dy = arrow_length * np.sin(p1_theta)
+            ax.plot(p1_x, p1_y, 'bo', markersize=10, label='Car 1 Pose (p1)')
+            ax.arrow(p1_x, p1_y, p1_dx, p1_dy,
+                     head_width=0.15, head_length=0.1, fc='blue', ec='blue', linewidth=2)
+
+        # Plot car2 pose (p2)
+        if curr_car2 is not None:
+            p2_x, p2_y, p2_theta = curr_car2
+            p2_dx = arrow_length * np.cos(p2_theta)
+            p2_dy = arrow_length * np.sin(p2_theta)
+            ax.plot(p2_x, p2_y, 'go', markersize=10, label='Car 2 Pose (p2)')
+            ax.arrow(p2_x, p2_y, p2_dx, p2_dy,
+                     head_width=0.15, head_length=0.1, fc='green', ec='green', linewidth=2)
+
+        # Optionally plot arc start and end
+        if arc is not None:
+            start_x, start_y, start_yaw, end_x, end_y, end_yaw, k = arc
+            ax.plot(start_x, start_y, 'k^', markersize=8, label='Arc Start')
+            ax.plot(end_x, end_y, 'kv', markersize=8, label='Arc End')
+
+        ax.set_xlabel('X (m)', fontsize=12)
+        ax.set_ylabel('Y (m)', fontsize=12)
+        ax.set_title('Global Poses with Yaw Arrows', fontsize=14)
+        ax.legend(loc='best')
+        ax.grid(True, alpha=0.3)
+        ax.axis('equal')
+
+        plt.tight_layout()
+        return fig, ax
+
+
+    def optimal_poses_for_arc(self, arc, object_global_pose, curr_car1_pose, curr_car2_pose):
+
+            # p1_x = (positions[0][0] + positions[1][0]) * 0.5
+            # p1_y = (positions[0][1] + positions[1][1]) * 0.5
+            # p2_x = (positions[2][0] + positions[3][0]) * 0.5
+            # p2_y = (positions[2][1] + positions[3][1]) * 0.5
+            #
+            # if move == 'longitudinal':
+            #     p1_heading = -np.pi / 2
+            #     p2_heading = -np.pi / 2
+            #     if p1_y < 0:    p1_heading = np.pi / 2
+            #     if p2_y < 0:    p2_heading = np.pi / 2
+            # else:
+            #     if p1_x > 0:
+            #         p1_heading = np.pi
+            #         p1_x = p1_x + PUSHER_LENGTH * 0.75
+            #     else:
+            #         p1_heading = 0
+            #         p1_x = p1_x - PUSHER_LENGTH * 0.75
+            #
+            #
+            #     if p2_x > 0:
+            #         p2_heading = np.pi
+            #         p2_x = p2_x + PUSHER_LENGTH * 0.75
+            #     else:
+            #         p2_heading = 0
+            #         p2_x = p2_x - PUSHER_LENGTH * 0.75
+            p1_x = 0
+            p1_y = Bread
+            car1_pose = object_frame_to_global_frame((p1_x, p1_y, wrap(p1_heading)), object_global_pose)
+            car2_pose = object_frame_to_global_frame((p2_x, p2_y, wrap(p2_heading)), object_global_pose)
+            # if car1_pose is not None and car2_pose is not None:
+            #     self.plot_global_poses_with_yaw(object_global_pose, car1_pose, car2_pose, arc, curr_car1_pose, curr_car2_pose)
+            #     plt.show()
             return car1_pose, car2_pose
 
-        args = self.optimize(length, breadth, object_twist, "lateral")
-        if args is not None:
-            contacts = args.get("contacts", None)
-            positions = []
-            normals = []
-            tangents = []
-            for c in contacts:
-                pos = np.asarray(c["pos"], dtype=float)
-                force = np.asarray(c["force"], dtype=float)
-                normal = np.asarray(c["normal_force"], dtype=float)
-                tangent = np.asarray(c["tangent_force"], dtype=float)
-                positions.append(pos)
-                normals.append(normal)
-                tangents.append(tangent)
-            p1_x = (positions[0][0] + positions[1][0]) * 0.5
-            p1_y = (positions[0][1] + positions[1][1]) * 0.5
-            p2_x = (positions[2][0] + positions[3][0]) * 0.5
-            p2_y = (positions[2][1] + positions[3][1]) * 0.5
-            if p1_x < 0:
-                p1_heading = 0
-            else:
-                p1_heading = np.pi
-            if p2_x < 0:
-                p2_heading = 0
-            else:
-                p2_heading = np.pi
-            car1_pose = object_frame_to_global_frame((p1_x, p1_y, wrap(p1_heading)), object_twist)
-            car2_pose = object_frame_to_global_frame((p2_x, p2_y, wrap(p2_heading)), object_twist)
-            return car1_pose, car2_pose
-        return None, None, None, None
+        return None, None
+
+    def optimal_poses_for_arc(self, arc, object_global_pose, curr_car1_pose, curr_car2_pose):
+        start_x, start_y, start_yaw, end_x, end_y, end_yaw, k = arc
+        vx, vy, omega = end_x - start_x, end_y - start_y, end_yaw - start_yaw
+        x, y, theta = object_global_pose
+
+        vx_local = vx * math.cos(theta) + vy * math.sin(theta)
+        vy_local = - vx * math.sin(theta) + vy * math.cos(theta)
+        omega_local = - omega
+        object_twist = np.array([vx_local, vy_local, omega_local])
+
+        # normalize
+        object_twist = object_twist / np.linalg.norm(object_twist)
+        print("object_twist", object_twist)
+        print("object shape", self.length, self.breadth)
+        moves = ['longitudinal', 'lateral']
+        for move in moves:
+            args  = self.optimize(object_twist, move)
+            if args is not None:
+                contacts = args.get("contacts", None)
+                positions = []
+                normals = []
+                tangents = []
+                for c in contacts:
+                    pos = np.asarray(c["pos"], dtype=float)
+                    normal = np.asarray(c["normal_force"], dtype=float)
+                    tangent = np.asarray(c["tangent_force"], dtype=float)
+                    positions.append(pos)
+                    normals.append(normal)
+                    tangents.append(tangent)
+                p1_x = (positions[0][0] + positions[1][0]) * 0.5
+                p1_y = (positions[0][1] + positions[1][1]) * 0.5
+                p2_x = (positions[2][0] + positions[3][0]) * 0.5
+                p2_y = (positions[2][1] + positions[3][1]) * 0.5
+
+                if move == 'longitudinal':
+                    p1_heading = -np.pi / 2
+                    p2_heading = -np.pi / 2
+                    if p1_y < 0:    p1_heading = np.pi / 2
+                    if p2_y < 0:    p2_heading = np.pi / 2
+                else:
+                    if p1_x > 0:
+                        p1_heading = np.pi
+                        p1_x = p1_x + PUSHER_LENGTH * 0.75
+                    else:
+                        p1_heading = 0
+                        p1_x = p1_x - PUSHER_LENGTH * 0.75
 
 
-    def optimize(self, length, breadth, object_twist, orientation='longitudinal'):
+                    if p2_x > 0:
+                        p2_heading = np.pi
+                        p2_x = p2_x + PUSHER_LENGTH * 0.75
+                    else:
+                        p2_heading = 0
+                        p2_x = p2_x - PUSHER_LENGTH * 0.75
+
+                car1_pose = object_frame_to_global_frame((p1_x, p1_y, wrap(p1_heading)), object_global_pose)
+                car2_pose = object_frame_to_global_frame((p2_x, p2_y, wrap(p2_heading)), object_global_pose)
+                # if car1_pose is not None and car2_pose is not None:
+                #     self.plot_global_poses_with_yaw(object_global_pose, car1_pose, car2_pose, arc, curr_car1_pose, curr_car2_pose)
+                #     plt.show()
+                return car1_pose, car2_pose
+
+        return None, None
+
+    def optimize(self, object_twist, orientation='longitudinal'):
         if orientation not in ('longitudinal', 'lateral'):
             raise ValueError("orientation must be 'longitudinal' or 'lateral'")
 
         is_lateral = (orientation == 'lateral')
         if is_lateral:
-            length_local = breadth
-            breadth_local = length
+            length_local = self.breadth
+            breadth_local = self.length
             twist_local = [object_twist[1], object_twist[0], object_twist[2]]
         else:
-            length_local = length
-            breadth_local = breadth
+            length_local = self.length
+            breadth_local = self.breadth
             twist_local = list(object_twist)
 
         model = gp.Model("Optimal_Contact_Points_2D", env=self.gurobi_env)
@@ -170,11 +290,11 @@ class LoadOptimization:
 
         # unit constraints for tangential unit scalars (force decomposition uses ±1)
         s1_t = model.addVar(vtype=GRB.BINARY, name="s1_t")
+        s2_t = model.addVar(vtype=GRB.BINARY, name="s2_t")
+
         # t_unit = 2*s - 1
         model.addConstr(t1_l_unit == 2 * s1_t - 1)
         model.addConstr(t1_r_unit == 2 * s1_t - 1)
-        s2_t = model.addVar(vtype=GRB.BINARY, name="s2_t")
-        # t_unit = 2*s - 1
         model.addConstr(t2_l_unit == 2 * s2_t - 1)
         model.addConstr(t2_r_unit == 2 * s2_t - 1)
 
@@ -281,7 +401,6 @@ class LoadOptimization:
         rear1_secondary = model.addVar(lb=-100, ub=100, name="rear1_secondary")
         rear2_primary = model.addVar(lb=-100, ub=100, name="rear2_primary")
         rear2_secondary = model.addVar(lb=-100, ub=100, name="rear2_secondary")
-
         model.addConstr(rear1_primary == p1_primary - L * c1, name="rear1_primary_def")
         model.addConstr(rear1_secondary == p1_secondary - L * s1, name="rear1_secondary_def")
         model.addConstr(rear2_primary == p2_primary - L * c2, name="rear2_primary_def")
@@ -311,7 +430,6 @@ class LoadOptimization:
 
         # === CASE 1: ROTATION (is_rotating = 1) ===
         # When rotating, both front and rear rotate about an ICR
-
         icr1_primary = model.addVar(lb=-100, ub=100, name="icr1_primary")
         icr1_secondary = model.addVar(lb=-100, ub=100, name="icr1_secondary")
         icr2_primary = model.addVar(lb=-100, ub=100, name="icr2_primary")
@@ -336,7 +454,7 @@ class LoadOptimization:
         model.addConstr(v_p2_secondary - omega * (icr2_primary - p2_primary) >= -BigM * (1 - is_rotating),
                         name="car2_front_icr_secondary_lb")
 
-        # Rear ICR constraints (ONLY active when rotating) - THIS WAS THE MAIN BUG
+        # Rear ICR constraints (ONLY active when rotating)
         model.addConstr(v_rear1_primary - omega * (rear1_secondary - icr1_secondary) <= BigM * (1 - is_rotating),
                         name="car1_rear_icr_primary_ub")
         model.addConstr(v_rear1_primary - omega * (rear1_secondary - icr1_secondary) >= -BigM * (1 - is_rotating),
@@ -355,7 +473,7 @@ class LoadOptimization:
         model.addConstr(v_rear2_secondary - omega * (icr2_primary - rear2_primary) >= -BigM * (1 - is_rotating),
                         name="car2_rear_icr_secondary_lb")
 
-        # Minimum turning radius (only enforced when rotating)
+        # Physical minimum turning radius limit of car (only enforced when rotating)
         R_MIN = 0.814
         R1_squared = model.addVar(lb=0, ub=10000, name="R1_squared")
         R2_squared = model.addVar(lb=0, ub=10000, name="R2_squared")
@@ -370,7 +488,6 @@ class LoadOptimization:
 
         # === CASE 2: TRANSLATION (is_rotating = 0) ===
         # When not rotating, front and rear must have same velocity
-
         model.addConstr(v_p1_primary - v_rear1_primary <= BigM * is_rotating,
                         name="car1_translation_primary_ub")
         model.addConstr(v_p1_primary - v_rear1_primary >= -BigM * is_rotating,
@@ -389,22 +506,9 @@ class LoadOptimization:
         model.addConstr(v_p2_secondary - v_rear2_secondary >= -BigM * is_rotating,
                         name="car2_translation_secondary_lb")
 
-        # === NONHOLONOMIC CONSTRAINT ===
-        # Rear wheels cannot slip sideways: v_rear · perpendicular_to_heading = 0
-        # Since heading = (c, s) = (0, ±1), perpendicular = (∓1, 0)
-        # This means: (∓1) * v_rear_primary + 0 * v_rear_secondary = 0
-        # Or equivalently: v_rear_primary * (-s) = 0
-
-        # Linearize the bilinear term: v_rear_primary * (-s)
-        # Since s = 1 - 2*p_secondary_binary ∈ {-1, +1}
-        # We need: -s * v_rear_primary = 0
-        # Which means: (2*p_secondary_binary - 1) * v_rear_primary = 0
-
         # Create auxiliary variable for the product
         v_rear1_primary_signed = model.addVar(lb=-100, ub=100, name="v_rear1_primary_signed")
         v_rear2_primary_signed = model.addVar(lb=-100, ub=100, name="v_rear2_primary_signed")
-
-        BigM_v = 100
 
         model.addConstr(v_rear1_primary_signed <= BigM * is_rotating,
                         name="car1_nonholonomic_ub")
@@ -437,20 +541,14 @@ class LoadOptimization:
 
         BigM_v = 100
 
-        # Linearization for car 1: v_rear1_secondary_signed = s1 * v_rear1_secondary
-        # When p1_secondary_binary = 0 (bottom): s1 = 1, so signed = v_rear1_secondary
         model.addConstr(v_rear1_secondary_signed <= v_rear1_secondary + BigM_v * p1_secondary_binary,
                         name="v_rear1_sec_signed_bottom_ub")
         model.addConstr(v_rear1_secondary_signed >= v_rear1_secondary - BigM_v * p1_secondary_binary,
                         name="v_rear1_sec_signed_bottom_lb")
-
-        # When p1_secondary_binary = 1 (top): s1 = -1, so signed = -v_rear1_secondary
         model.addConstr(v_rear1_secondary_signed <= -v_rear1_secondary + BigM_v * (1 - p1_secondary_binary),
                         name="v_rear1_sec_signed_top_ub")
         model.addConstr(v_rear1_secondary_signed >= -v_rear1_secondary - BigM_v * (1 - p1_secondary_binary),
                         name="v_rear1_sec_signed_top_lb")
-
-        # Linearization for car 2
         model.addConstr(v_rear2_secondary_signed <= v_rear2_secondary + BigM_v * p2_secondary_binary,
                         name="v_rear2_sec_signed_bottom_ub")
         model.addConstr(v_rear2_secondary_signed >= v_rear2_secondary - BigM_v * p2_secondary_binary,
@@ -489,6 +587,7 @@ class LoadOptimization:
 
         model.setObjective(f_infinity_norm, GRB.MINIMIZE)
         model.setParam('TimeLimit', 150)
+        model.setParam('MIPGap', 0.05)
         model.optimize()
 
         if model.status == GRB.OPTIMAL:
@@ -514,12 +613,6 @@ class LoadOptimization:
                     "t_unit": float(t_unit_var.X)
                 }
 
-            # create the contacts list (primary/secondary variables used consistently)
-
-            # print("final values of sin and cos", s1, s2, c1, c2)
-
-            # Now assemble the backwards-compatible result mapping depending on orientation
-            # (this reproduces your prior returned formats so downstream code is unchanged)
             if not is_lateral:
                 contacts = [
                     contact_entry("f1_l", p1_l_primary, p1_secondary, f1_l_vector, f1_l_n_mag, n1_l_unit, f1_l_t_mag,
@@ -530,7 +623,6 @@ class LoadOptimization:
                                   t2_l_unit),
                     contact_entry("f2_r", p2_r_primary, p2_secondary, f2_r_vector, f2_r_n_mag, n2_r_unit, f2_r_t_mag,
                                   t2_r_unit)]
-                # matches old optimize_top_bottom return format
                 result = {
                     "contacts": contacts,
                     "p1_l": np.array([p1_l_primary.X, p1_secondary.X]),
@@ -545,10 +637,6 @@ class LoadOptimization:
                     "objective": model.ObjVal,
                     "car1_heading": np.array([c1.X, s1.X]),
                     "car2_heading": np.array([c2.X, s2.X]),
-                    # "car1_speed": speed1.X,
-                    # "car2_speed": speed2.X,
-                    # "f1_total": f1_total_mag.X,
-                    # "f2_total": f2_total_mag.X
                 }
             else:
                 contacts = [
@@ -560,7 +648,6 @@ class LoadOptimization:
                                   t2_l_unit),
                     contact_entry("f2_r", p2_secondary, p2_r_primary, f2_r_vector, f2_r_n_mag, n2_r_unit, f2_r_t_mag,
                                   t2_r_unit)]
-                # matches old optimize_left_right return format (keeps the same swapped ordering you originally used)
                 result = {
                     "contacts": contacts,
                     "p1_l": np.array([p1_secondary.X, p1_l_primary.X]),
@@ -575,10 +662,6 @@ class LoadOptimization:
                     "objective": model.ObjVal,
                     "car1_heading": np.array([-s1.X, c1.X]),
                     "car2_heading": np.array([-s2.X, c2.X]),
-                    # "car1_speed": speed1.X,
-                    # "car2_speed": speed2.X,
-                    # "f1_total": f1_total_mag.X,
-                    # "f2_total": f2_total_mag.X
                 }
             return result
 

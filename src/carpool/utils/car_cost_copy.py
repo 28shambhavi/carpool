@@ -191,13 +191,13 @@ class CarCostFunctions():
             angle_diff = car[:, 2] - target[2]
             angle_diff = ((angle_diff + np.pi) % (2 * np.pi)) - np.pi
 
-            cost = 5.0 * position_error ** 2 + 3.0 * angle_diff ** 2
+            cost = 1.0 * position_error ** 2 + 3.0 * angle_diff ** 2
 
         # Common costs (always vectorized)
-        traj_cost = 8.0 * self.tan_dist(car[:, :2], self.trajectory[:, :2]) ** 2
-        action_cost = 0.005 * actions_np[:, 0] ** 2 + 0.001 * actions_np[:, 1] ** 2
+        traj_cost = 1.0 * self.tan_dist(car[:, :2], self.trajectory[:, :2]) ** 2
+        action_cost = 0.1 * actions_np[:, 0] ** 2 + 0.02 * actions_np[:, 1] ** 2
 
-        total_cost = cost + traj_cost + action_cost
+        total_cost = cost + traj_cost + action_cost*0.01
 
         return torch.tensor(total_cost, dtype=torch.float32)
 

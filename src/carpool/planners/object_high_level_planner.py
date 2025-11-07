@@ -1,5 +1,7 @@
 import math
 import heapq
+import pdb
+
 import numpy as np
 import matplotlib.pyplot as plt
 import time
@@ -75,19 +77,25 @@ class HybridAStar:
             obstacles, rectangular_object, R_min=None, R_max=None, resolution=None, step_size=None,
             obstacles_frame=None,  # None -> auto-detect, "user" or "internal"
             w_len=0.5,  # path length weight
-            w_kappa=0.8,  # |curvature| weight   (per meter)
-            w_kappa2=0.7,  # curvature^2 weight   (per meter)
-            w_dk=0.8,  # |Δcurvature| penalty per step
-            w_gear=2.0,  # switching fwd<->rev
-            w_switch=0.8,  # switching curvature sign (+ ↔ -)
-            w_turn_in_place=0.001,
-            w_strafe = 0.5,
+            w_kappa=0.4,  # |curvature| weight   (per meter)
+            w_kappa2=0.4,  # curvature^2 weight   (per meter)
+            w_dk=0.5,  # |Δcurvature| penalty per step
+            # TODO: This is for the first four cases
+            # w_gear=0.5*100000,  # switching fwd<->rev
+            # w_switch=0.5*100000,  # switching curvature sign (+ ↔ -)
+            # w_turn_in_place=0.5*100000,
+            # w_strafe =0.5*100000,
+            # TODO: This is for case 5 and 6
+             w_gear=1,  # switching fwd<->rev
+             w_switch=1,  # switching curvature sign (+ ↔ -)
+             w_turn_in_place=1,
+             w_strafe =1,
             yaw_heuristic_scale=0.8,  # add heading term into heuristic (keeps admissible)
 
     ):
         self.map_size = map_size
         self.obstacles = obstacles
-        self.rectangular_object = 1.0 * np.array(rectangular_object)
+        self.rectangular_object = 1.2 * np.array(rectangular_object)
         self.resolution = resolution if resolution is not None else 0.01
         self.step_size = step_size if step_size is not None else 0.05
         self.R_min = R_min
@@ -96,6 +104,7 @@ class HybridAStar:
         self.w_kappa = float(w_kappa)
         self.w_kappa2 = float(w_kappa2)
         self.w_dk = float(w_dk)
+        self.w_strafe = float(w_strafe)
         self.w_gear = float(w_gear)
         self.w_switch = float(w_switch)
         self.w_turn_in_place = float(w_turn_in_place)
@@ -128,6 +137,14 @@ class HybridAStar:
     def _is_collision(self, x, y, yaw, grid, map_min_x, map_min_y, L, W):
         resolution = self.resolution
         nx, ny = grid.shape[1], grid.shape[0]
+
+        # Workspace bounds in internal coordinates
+        # Internal [0, map_size] corresponds to user [-map_size/2, map_size/2]
+        workspace_min_x = map_min_x
+        workspace_max_x = map_min_x + self.map_size[0]
+        workspace_min_y = map_min_y
+        workspace_max_y = map_min_y + self.map_size[1]
+
         c, s = math.cos(yaw), math.sin(yaw)
         hl, hw = L / 2, W / 2
         corners = [
@@ -136,11 +153,20 @@ class HybridAStar:
             (x - c * hl - s * hw, y - s * hl + c * hw),
             (x - c * hl + s * hw, y - s * hl - c * hw),
         ]
+
         for cx, cy in corners:
+            # Check workspace boundaries (with small margin for numerical errors)
+            margin = 0.01
+            if (cx < workspace_min_x + margin or cx > workspace_max_x - margin or
+                    cy < workspace_min_y + margin or cy > workspace_max_y - margin):
+                return True
+
+            # Grid-based obstacle check
             ix = int((cx - map_min_x) / resolution)
             iy = int((cy - map_min_y) / resolution)
             if not (0 <= ix < nx and 0 <= iy < ny) or grid[iy, ix] == 1:
                 return True
+
         return False
 
     # ---- Post-processing: compress consecutive segments of the same curvature ----
@@ -164,9 +190,9 @@ class HybridAStar:
         return merged
 
     # ---- Planner ----
-    def hybrid_a_star_planner(self, start, goal, rmin_left=None, rmin_right=None):
+    def hybrid_a_star_planner(self, start, goal):
         start_time = time.time()
-        width, length = self.rectangular_object # w,l
+        length, width = self.rectangular_object # w,l
 
         map_min_x, map_min_y = 0.0, 0.0
         map_max_x, map_max_y = self.map_size
@@ -223,16 +249,18 @@ class HybridAStar:
         def is_collision_pose(x, y, yaw):
             return self._is_collision(x, y, yaw, grid, map_min_x, map_min_y, length, width)
 
-        k1_max = 1.0 / self.R_max
-        k2_min = 1.0 / self.R_min
+        k_max = 1.0 / self.R_max if self.R_max != 0.0 else None
+        k_min = 1.0 / self.R_min
 
-        map_diagonal = 10
+        map_diagonal = 1000
         k_practical_max = 2.0 / map_diagonal
 
-        k1_lvls = np.linspace(0.0, k1_max, num=5)
-        k2_lvls = np.linspace(k2_min, k_practical_max, num=5)
-
-        k_lvls = np.unique(np.concatenate((k1_lvls, k2_lvls)))
+        k1_lvls = np.linspace(0.0, k_min, num=10)
+        k_lvls = np.unique(k1_lvls)
+        if k_max is not None:
+            # Config 2 should go from k_max down to k_min (not to zero!)
+            k2_lvls = np.linspace(k_max, k_min, num=10)  # [5.0, ..., 1.0]
+            k_lvls = np.unique(np.concatenate((k1_lvls, k2_lvls)))
 
         primitives = []
         for k in k_lvls:
@@ -251,11 +279,11 @@ class HybridAStar:
         primitives.append(('turn_right', turn_angle_per_step))
         primitives.append(('strafe_left', step_size))
         primitives.append(('strafe_right', step_size))
-        print("Primitives generated:", len(primitives))
-        print("Checking for backward straight:", (-1, 0.0) in primitives)
-        for i, p in enumerate(primitives[:5]):  # Print first 5
-            print(f"  {i}: {p}")
-        n_samples = 10  # arc collision samples per primitive
+        # print("Primitives generated:", len(primitives))
+        # print("Checking for backward straight:", (-1, 0.0) in primitives)
+        # for i, p in enumerate(primitives[:5]):  # Print first 5
+        #     print(f"  {i}: {p}")
+        n_samples = 3  # arc collision samples per primitive
 
         def expand(node):
             neigh = []
@@ -306,7 +334,7 @@ class HybridAStar:
                         continue
 
                     # Cost for strafing
-                    seg_cost = self.w_len * distance
+                    seg_cost = self.w_strafe * distance
 
                     # Penalize mode change if previous wasn't strafing
                     if node.parent is not None and node.curvature != -2.0:
@@ -403,10 +431,9 @@ class HybridAStar:
         heapq.heappush(openq, (heuristic(*start_i), 0, start_node))
         closed = {}
         push_idx = 0
-        plot_map(self.obstacles, (length, width), start, goal, None)
-        plt.show()
+        # plot_map(self.obstacles, (length, width), start, goal, None)
+        # plt.show()
         while openq and (time.time() - start_time) < 300.0:  # 5 min timeout
-            print(len(openq))
             f, _, node = heapq.heappop(openq)
             k_ = key(node)
             if k_ in closed and node.cost >= closed[k_]:
@@ -414,8 +441,12 @@ class HybridAStar:
             closed[k_] = node.cost
 
             # goal test
-            if (math.hypot(goal_i[0] - node.x, goal_i[1] - node.y) < resolution and
-                    abs(((node.yaw - goal_i[2] + math.pi) % (2 * math.pi) - math.pi)) < yaw_res):
+            goal_position_tol = 0.3  # Should be >= step_size
+            goal_yaw_tol = 0.2  # ~11 degrees, reasonable for parking
+
+            # goal test
+            if (math.hypot(goal_i[0] - node.x, goal_i[1] - node.y) < goal_position_tol and
+                    abs(((node.yaw - goal_i[2] + math.pi) % (2 * math.pi) - math.pi)) < goal_yaw_tol):
                 pts = []
                 cur = node
                 while cur is not None:
@@ -434,8 +465,9 @@ class HybridAStar:
                 for (sx, sy, syaw, ex, ey, eyaw, k) in smooth_internal:
                     out.append((sx - map_max_x / 2.0, sy - map_max_y / 2.0, syaw,
                                 ex - map_max_x / 2.0, ey - map_max_y / 2.0, eyaw, k))
-                plot_map(self.obstacles, (length, width), start, goal, out)
-                plt.show()
+                print(out)
+                # plot_map(self.obstacles, (length, width), start, goal, out)
+                # plt.show()
                 return out
 
             for nb in expand(node):

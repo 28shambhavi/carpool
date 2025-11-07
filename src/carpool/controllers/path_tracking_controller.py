@@ -1,33 +1,19 @@
 import torch
 import numpy as np
-from ..utils.car_cost_function import CarCostFunctions
-# from utils.load_config import multi_agent_config as config
-import os
 from pytorch_mppi.mppi import MPPI
 from torch.distributions.multivariate_normal import MultivariateNormal
-
+from ..utils.car_cost_function import CarCostFunctions
 
 class MPPI_R(MPPI):
-    # modify the MPPI function a bit to allow direction changes so that it switches between only
-    # going forward and moving backwards
+    """Modified MPPI with direction change support."""
+
     def change_direction(self):
         current_max_velocity = self.u_max[1]
         current_min_velocity = self.u_min[1]
 
-        if current_max_velocity > 0:
-            new_max_velocity = 0
-            new_min_velocity = -current_max_velocity
-            mu = -current_max_velocity / 2
-
-        else:
-            new_max_velocity = -current_min_velocity
-            new_min_velocity = 0
-            mu = -current_min_velocity / 2
-
-        self.u_max[1] = new_max_velocity
-        self.u_min[1] = new_min_velocity
-
-        self.noise_mu[1] = mu
+        self.u_max[1] = -current_max_velocity
+        self.u_min[1] = -current_min_velocity
+        self.noise_mu[1] = -current_max_velocity/2
         self.noise_dist = MultivariateNormal(self.noise_mu, covariance_matrix=self.noise_sigma)
         self.reset()
 
@@ -42,8 +28,9 @@ class MPPI_R(MPPI):
             self.change_direction()
 
 
-class PathTracking():
+class PathTracking:
     def __init__(self, noise_mu, noise_sigma, N_SAMPLES, TIMESTEPS, ACTION_LOW, ACTION_HIGH):
+        self.reached_goal = None
         self.noise_mu = noise_mu
         self.noise_sigma = noise_sigma
         self.N_SAMPLES = N_SAMPLES
@@ -58,126 +45,123 @@ class PathTracking():
         self.noise_sigma = noise_sigma
         self.ACTION_LOW = ACTION_LOW
         self.ACTION_HIGH = ACTION_HIGH
-        self.ctrl = MPPI_R(self.cost.car_dynamics,
-                           self.cost.running_cost,
-                           nx=3,
-                           noise_sigma=torch.tensor(self.noise_sigma, dtype=torch.float32),
-                           num_samples=self.N_SAMPLES,
-                           horizon=self.TIMESTEPS,
-                           lambda_=1,
-                           device='cpu',
-                           noise_mu=torch.tensor(self.noise_mu, dtype=torch.float32),
-                           u_min=torch.tensor(self.ACTION_LOW, dtype=torch.float32, device=self.d),
-                           u_max=torch.tensor(self.ACTION_HIGH, dtype=torch.float32, device=self.d),
-                           terminal_state_cost=self.cost.terminal_state_cost,
-                           sample_null_action=False)
-        # self.reset()
+        self._create_controller()
+
+    def _create_controller(self):
+        """Helper to create MPPI controller with current parameters."""
+        self.ctrl = MPPI_R(
+            self.cost.car_dynamics,
+            self.cost.running_cost,
+            nx=3,
+            noise_sigma=torch.tensor(self.noise_sigma, dtype=torch.float32),
+            num_samples=self.N_SAMPLES,
+            horizon=self.TIMESTEPS,
+            lambda_=1,
+            device='cpu',
+            noise_mu=torch.tensor(self.noise_mu, dtype=torch.float32),
+            u_min=torch.tensor(self.ACTION_LOW, dtype=torch.float32, device=self.d),
+            u_max=torch.tensor(self.ACTION_HIGH, dtype=torch.float32, device=self.d),
+            terminal_state_cost=self.cost.terminal_state_cost,
+            sample_null_action=False
+        )
 
     def reset(self):
+        # Import here to avoid circular dependency
         self.cost = CarCostFunctions()
-        self.ctrl = MPPI_R(self.cost.car_dynamics,
-                           self.cost.running_cost,
-                           nx=3,
-                           noise_sigma=torch.tensor(self.noise_sigma, dtype=torch.float32),
-                           num_samples=self.N_SAMPLES,
-                           horizon=self.TIMESTEPS,
-                           lambda_=1,
-                           device='cpu',
-                           noise_mu=torch.tensor(self.noise_mu, dtype=torch.float32),
-                           u_min=torch.tensor(self.ACTION_LOW, dtype=torch.float32, device=self.d),
-                           u_max=torch.tensor(self.ACTION_HIGH, dtype=torch.float32, device=self.d),
-                           terminal_state_cost=self.cost.terminal_state_cost,
-                           sample_null_action=True)
-        self.index = 0
+        self._create_controller()
         self.forward = True
         self.reached_goal = False
         self.replan = False
-        self.smoothed_action = np.zeros(2)  # [steering_angle, speed]
-        # self.alpha = 0.3  # Increased smoothing for better coordination
+        self.smoothed_action = np.zeros(2)  # [steering, speed]
         self.previous_action = np.zeros(2)
-        self.action_history = []  # Track action history for better smoothing
+        self.action_history = []
+        self.total_distance_traveled = 0.0
+        self.previous_position = None
 
     def set_forward(self):
-        """Force the controller to use forward motion limits."""
+        """Force controller to use forward motion."""
         self.ctrl.set_forward()
         self.forward = True
 
     def set_reverse(self):
-        """Force the controller to use reverse motion limits."""
+        """Force controller to use reverse motion."""
         self.ctrl.set_reverse()
         self.forward = False
 
-    def set_trajectory(self, trajectory):
+    def set_trajectory(self, trajectory, target_spacing=0.05, default_velocity=0.2):
         self.reset()
-        self.cost.set_trajectory(trajectory)
+        self.cost.set_trajectory(trajectory, target_spacing, default_velocity)
         self.replan = False
+        self.previous_position = trajectory[0, :2]
 
-    def smooth_action(self, action, coordination_factor=1.0):
-        """
-        Enhanced smoothing with coordination factor
-        coordination_factor: 1.0 = normal, <1.0 = slower/more cautious
-        """
-        if not isinstance(action, np.ndarray):
-            action = np.array(action, dtype=np.float32)
+    def get_tracking_error(self, obs):
+        #Current cross-track error
+        if self.cost.trajectory is None:
+            return 0.0
+        return self.cost.tan_dist(obs[:2].reshape(1, -1), self.cost.trajectory[:, :2])[0]
 
-        # Apply coordination factor to speed
-        action[1] *= coordination_factor
+    def is_goal_reached(self, obs, distance_threshold=0.21, heading_threshold=0.18):
+        if self.cost.trajectory is None or self.cost.goal is None:
+            return False
 
-        # Enhanced exponential moving average with acceleration limits
-        max_accel_change = 0.05  # Limit sudden acceleration changes
-        max_steer_change = 0.1  # Limit sudden steering changes
+        goal = self.cost.goal
+        current_pos = obs[:3]
 
-        # Limit steering angle changes
-        steer_diff = action[0] - self.smoothed_action[0]
-        if abs(steer_diff) > max_steer_change:
-            action[0] = self.smoothed_action[0] + np.sign(steer_diff) * max_steer_change
+        position_error = np.linalg.norm(goal[:2] - current_pos[:2])
+        heading_error = abs(((goal[2] - current_pos[2] + np.pi) % (2 * np.pi)) - np.pi)
+        print("Position error: ", position_error)
+        print("Heading error: ", heading_error)
+        goal_reached = (position_error < distance_threshold and
+                        heading_error < heading_threshold)
 
-        # Limit acceleration changes
-        accel_diff = action[1] - self.smoothed_action[1]
-        if abs(accel_diff) > max_accel_change:
-            action[1] = self.smoothed_action[1] + np.sign(accel_diff) * max_accel_change
+        if goal_reached:
+            self.reached_goal = True
 
-        # Apply exponential moving average
-        self.smoothed_action = self.alpha * self.smoothed_action + (1 - self.alpha) * action
-
-        # Store in history for future reference
-        self.action_history.append(self.smoothed_action.copy())
-        if len(self.action_history) > 10:  # Keep last 10 actions
-            self.action_history.pop(0)
-
-        return self.smoothed_action.copy()
+        # if self.get_reference_index(obs) == len(self.cost.trajectory) - 1:
+        #     print("reached last reference!")
+        #     return True
+        return goal_reached
 
     def get_reference_index(self, obs):
-        self.index = self.cost.get_reference_index(obs)
-        if self.cost.change_dir == True:
-            pass
+        target_idx = self.cost.get_reference_index(obs)
+        if self.cost.change_dir:
+            print(f"→ Direction change at segment {self.cost.dir_idx}")
+            if target_idx < len(self.cost.trajectory) - 1:
+                current_pos = obs[:2]
+                next_waypoint = self.cost.trajectory[target_idx + 1, :2]
+                current_heading = obs[2]
+                direction_vector = next_waypoint - current_pos
+                travel_angle = np.arctan2(direction_vector[1], direction_vector[0])
+                angle_diff = abs(((travel_angle - current_heading + np.pi) % (2 * np.pi)) - np.pi)
+
+                if angle_diff < np.pi / 2:  # Forward
+                    if not self.forward:
+                        self.ctrl.set_forward()
+                        self.forward = True
+                else:  # Reverse
+                    if self.forward:
+                        self.ctrl.set_reverse()
+                        self.forward = False
+
+        # Update control flags
         self.ctrl.sample_null_action = self.cost.sample_null()
         self.reached_goal = self.cost.sample_null()
         self.replan = self.cost.replan
-        return self.index
 
-    def get_tracking_error(self, obs):
-        """Return the current tracking error for coordination purposes"""
-        if hasattr(self.cost, 'trajectory') and self.cost.trajectory is not None:
-            ref_point = self.cost.trajectory[self.index, :2]
-            current_point = obs[:2]
-            return np.hypot(ref_point[0] - current_point[0], ref_point[1] - current_point[1])
-        return 0.0
+        # Track distance traveled
+        if self.previous_position is not None:
+            segment_distance = np.linalg.norm(obs[:2] - self.previous_position)
+            self.total_distance_traveled += segment_distance
+        self.previous_position = obs[:2].copy()
 
-    def check_direction(self, car, ref):
-        v = np.array([ref[0] - car[0], ref[1] - car[1]])
-        d = np.array([np.cos(car[2]), np.sin(car[2])])
+        progress_pct = 100.0 * self.cost.progress_index / max(1, len(self.cost.trajectory) - 1)
+        print(f"  Progress: {progress_pct:.1f}% | "
+              f"Target idx: {target_idx}/{len(self.cost.trajectory)} | "
+              f"Gear: {'FWD' if self.forward else 'REV'}")
 
-        dp = np.dot(v, d)
-        if dp >= 0:
-            forward = True
-        else:
-            forward = False
+        return target_idx
 
-        if forward != self.forward:
-            if forward == True:
-                self.ctrl.set_forward()
-            else:
-                self.ctrl.set_reverse()
-
-        self.forward = forward
+    def get_command(self, obs, coordination_factor=1.0):
+        self.get_reference_index(obs)
+        action = self.ctrl.command(obs)
+        return action
