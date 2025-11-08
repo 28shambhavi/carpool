@@ -17,8 +17,8 @@ class CarCostFunctions():
 
         self.progress_index = 0  # Current achieved waypoint
         self.lookahead_distance = 0.12  # meters ahead for target
-        self.reached_threshold = 0.05  # Distance to consider waypoint "reached"
-        self.direction_change_threshold = 0.06
+        self.reached_threshold = 0.09  # Distance to consider waypoint "reached"
+        self.direction_change_threshold = 0.15
         self.cumulative_distances = None  # For arc-length parameterization
         self.total_length = 0.0
 
@@ -178,7 +178,6 @@ class CarCostFunctions():
                 position_error = np.linalg.norm(car[i, :2] - target[:2])
                 angle_diff = car[i, 2] - target[2]
                 angle_diff = ((angle_diff + np.pi) % (2 * np.pi)) - np.pi
-
                 cost[i] = 5.0 * position_error ** 2 + 3.0 * angle_diff ** 2
         else:
             # Vectorized targeting (fast for straight sections)
@@ -186,17 +185,14 @@ class CarCostFunctions():
                 len(self.trajectory) - 1
             )
             target = self.trajectory[lookahead_idx]
-
             position_error = np.linalg.norm(car[:, :2] - target[:2], axis=1)
             angle_diff = car[:, 2] - target[2]
             angle_diff = ((angle_diff + np.pi) % (2 * np.pi)) - np.pi
-
             cost = 5.0 * position_error ** 2 + 3.0 * angle_diff ** 2
 
         # Common costs (always vectorized)
         traj_cost = 8.0 * self.tan_dist(car[:, :2], self.trajectory[:, :2]) ** 2
         action_cost = 0.005 * actions_np[:, 0] ** 2 + 0.001 * actions_np[:, 1] ** 2
-
         total_cost = cost + traj_cost + action_cost
 
         return torch.tensor(total_cost, dtype=torch.float32)

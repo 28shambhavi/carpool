@@ -110,7 +110,7 @@ class LoadOptimization:
         return fig, ax
 
 
-    def optimal_poses_for_arc(self, arc, object_global_pose, curr_car1_pose, curr_car2_pose):
+    def optimal_poses_for_arc_baseline(self, arc, object_global_pose, curr_car1_pose, curr_car2_pose):
 
             # p1_x = (positions[0][0] + positions[1][0]) * 0.5
             # p1_y = (positions[0][1] + positions[1][1]) * 0.5
@@ -138,15 +138,13 @@ class LoadOptimization:
             #         p2_heading = 0
             #         p2_x = p2_x - PUSHER_LENGTH * 0.75
             p1_x = 0
-            p1_y = Bread
+            p1_y = 0
             car1_pose = object_frame_to_global_frame((p1_x, p1_y, wrap(p1_heading)), object_global_pose)
             car2_pose = object_frame_to_global_frame((p2_x, p2_y, wrap(p2_heading)), object_global_pose)
             # if car1_pose is not None and car2_pose is not None:
             #     self.plot_global_poses_with_yaw(object_global_pose, car1_pose, car2_pose, arc, curr_car1_pose, curr_car2_pose)
             #     plt.show()
             return car1_pose, car2_pose
-
-        return None, None
 
     def optimal_poses_for_arc(self, arc, object_global_pose, curr_car1_pose, curr_car2_pose):
         start_x, start_y, start_yaw, end_x, end_y, end_yaw, k = arc

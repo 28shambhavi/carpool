@@ -56,7 +56,7 @@ class PathTracking:
             noise_sigma=torch.tensor(self.noise_sigma, dtype=torch.float32),
             num_samples=self.N_SAMPLES,
             horizon=self.TIMESTEPS,
-            lambda_=1,
+            lambda_=0.01,
             device='cpu',
             noise_mu=torch.tensor(self.noise_mu, dtype=torch.float32),
             u_min=torch.tensor(self.ACTION_LOW, dtype=torch.float32, device=self.d),

@@ -466,8 +466,8 @@ class HybridAStar:
                     out.append((sx - map_max_x / 2.0, sy - map_max_y / 2.0, syaw,
                                 ex - map_max_x / 2.0, ey - map_max_y / 2.0, eyaw, k))
                 print(out)
-                # plot_map(self.obstacles, (length, width), start, goal, out)
-                # plt.show()
+                plot_map(self.obstacles, (length, width), start, goal, out)
+                plt.show()
                 return out
 
             for nb in expand(node):

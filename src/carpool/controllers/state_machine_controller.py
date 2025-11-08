@@ -229,16 +229,16 @@ class ControlStateMachine:
         return [0, 0, 0, 0]
 
     def _initialize_path_tracking_controller(self, path):
-        cfg = {'noise_mu': np.array([0.0, 0.2]),
-               'noise_sigma': np.array([[0.3, 0.0], [0.0, 0.27]]),
+        cfg = {'noise_mu': np.array([0.0, 0.0]),
+               'noise_sigma': np.array([[0.05, 0.0], [0.0, 0.09]]),
                'n_samples': 200,
-               'predict_horizon': 40,
+               'predict_horizon': 50,
                'action_low': np.array([-0.29, -0.15]),
                'action_high': np.array([0.29, 0.30]),
-               'waypoint_lookahead': 0.3,
-               'waypoint_reached_threshold': 0.1,
-               'direction_change_threshold': 0.3,
-               'target_spacing': 0.1}
+               'waypoint_lookahead': 0.12,
+               'waypoint_reached_threshold': 0.09,
+               'direction_change_threshold': 0.15,
+               'target_spacing': 0.05}
 
         controller = PathTracking(
             cfg['noise_mu'],
@@ -248,7 +248,7 @@ class ControlStateMachine:
             cfg['action_low'],
             cfg['action_high']
         )
-        controller.set_trajectory(np.array(path), cfg.get('target_spacing', 0.05))
+        controller.set_trajectory(np.array(path))
         # cfg = {
         #     'noise_mu': np.array([0.0, 0.15]),
         #     'noise_sigma': np.array([[0.3, 0.0], [0.0, 0.4]]),
@@ -301,7 +301,6 @@ class ControlStateMachine:
     #         return (round(pose[0], 3), round(pose[1]+0.05, 3), round(pose[2], 3))
 
     def _plan_relocation_of_cars(self):
-
         poses = [self._rounded_pose(self.car1_pose), self._rounded_pose(self.car2_pose), self._rounded_pose(self.car1_next_push_pose), self._rounded_pose(self.car2_next_push_pose)]
         # poses = [self._rounded_pose(self.car1_pose), self._rounded_pose(self.car2_pose),
         #          self._rounded_pose_away(self.car1_next_push_pose), self._rounded_pose_away(self.car2_next_push_pose)]
@@ -316,20 +315,20 @@ class ControlStateMachine:
         # print("path1", path1)
         # print("path2", path2)
         self.state = EXECUTE_RELOCATION
-        # self.car1_tracking_controller = self._initialize_path_tracking_controller(path1)
-        # self.car2_tracking_controller = self._initialize_path_tracking_controller(path2)
-        self.car1_tracking_controller = SimplePathFollower(
-            lookahead_distance=0.3,
-            position_threshold=0.1,
-            max_velocity=0.30
-        )
-        self.car1_tracking_controller.set_path(path1)
-        self.car2_tracking_controller = SimplePathFollower(
-            lookahead_distance=0.3,
-            position_threshold=0.1,
-            max_velocity=0.30
-        )
-        self.car2_tracking_controller.set_path(path2)
+        self.car1_tracking_controller = self._initialize_path_tracking_controller(path1)
+        self.car2_tracking_controller = self._initialize_path_tracking_controller(path2)
+        # self.car1_tracking_controller = SimplePathFollower(
+        #     lookahead_distance=0.3,
+        #     position_threshold=0.1,
+        #     max_velocity=0.30
+        # )
+        # self.car1_tracking_controller.set_path(path1)
+        # self.car2_tracking_controller = SimplePathFollower(
+        #     lookahead_distance=0.3,
+        #     position_threshold=0.1,
+        #     max_velocity=0.30
+        # )
+        # self.car2_tracking_controller.set_path(path2)
         return [0, 0, 0, 0]
 
     def _execute_relocation_of_cars(self):
@@ -338,12 +337,12 @@ class ControlStateMachine:
             self.state = GEN_ROBOT_PUSH_TRAJ
             return [0, 0, 0, 0]
 
-        action1 = self.car1_tracking_controller.command(self.car1_pose)
-        action2 = self.car2_tracking_controller.command(self.car2_pose)
+        action1 = self.car1_tracking_controller.ctrl.command(self.car1_pose)
+        action2 = self.car2_tracking_controller.ctrl.command(self.car2_pose)
 
-        # idx1 = self.car1_tracking_controller.get_reference_index(self.car1_pose)
-        # idx2 = self.car2_tracking_controller.get_reference_index(self.car2_pose)
-        # print("index1", idx1, "index2", idx2)
+        idx1 = self.car1_tracking_controller.get_reference_index(self.car1_pose)
+        idx2 = self.car2_tracking_controller.get_reference_index(self.car2_pose)
+        print("index1", idx1, "index2", idx2)
         if self.car1_tracking_controller.is_goal_reached(self.car1_pose, 0.2, 0.5) and self.car2_tracking_controller.is_goal_reached(self.car2_pose, 0.2, 0.5):
             self.at_pushing_pose = True
             self.state = GEN_ROBOT_PUSH_TRAJ

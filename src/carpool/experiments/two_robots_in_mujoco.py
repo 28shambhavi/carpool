@@ -26,4 +26,4 @@ def run_carpool_simulation(test_case, path_tracking_config=None):
     sim_env.close()
 
 if __name__ == "__main__":
-    run_carpool_simulation(test_case=6)
+    run_carpool_simulation(test_case=5)

@@ -1,10 +1,11 @@
 import gymnasium as gym
-from mushr_mujoco_gym.envs.multi_robot_custom_block import MultiAgentMushrBlockEnv
+from mushr_mujoco_gym.envs.multi_robot_custom_block_obstacles import MultiAgentMushrBlockEnv
 from ..utils.angle_utils import pose_euler2quat, pose_quat2euler
 import numpy as np
 import xml.etree.ElementTree as ET
 import pdb
 PI_BY_2 = 1.57079632679
+
 class PushingAmongObstaclesEnv():
     def __init__(self, env_name, test_case=1, render_mode='human'):
         self.test_case = test_case
