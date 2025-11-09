@@ -97,15 +97,15 @@ class PushingAmongObstaclesEnv():
             block_start = [0.2, -1.2, PI_BY_2]
             block_goal = [0.2, 1.5, PI_BY_2]
         elif self.test_case == 3:
-            car1_start = [-1.2, -1.6, PI_BY_2]
-            car2_start = [-0.8, -1.6, PI_BY_2]
-            block_start = [-0.9, -1.3, PI_BY_2]
-            block_goal = [0.9, 1.6, PI_BY_2]
+            car1_start = [-1.1, -1.6, PI_BY_2]
+            car2_start = [-0.7, -1.6, PI_BY_2]
+            block_start = [-0.8, -1.3, PI_BY_2]
+            block_goal = [0.8, 1.6, PI_BY_2]
         elif self.test_case == 4:
-            car1_start = [0.8, -1.6, PI_BY_2]
-            car2_start = [1.2, -1.6, PI_BY_2]
-            block_start = [0.9, -1.3, PI_BY_2]
-            block_goal = [-1.2, 0.9, PI_BY_2*2]
+            car1_start = [0.6, -1.6, PI_BY_2]
+            car2_start = [1.0, -1.6, PI_BY_2]
+            block_start = [0.8, -1.3, PI_BY_2]
+            block_goal = [-1.2, 0.8, PI_BY_2*2]
         elif self.test_case == 5:
             car1_start = [1.3, 1.5, -PI_BY_2]
             car2_start = [-1.3, -1.5, PI_BY_2]

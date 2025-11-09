@@ -42,14 +42,14 @@ def _tf_to_pose(tf):
     return np.array([float(x), float(y), float(th)], dtype=float)
 
 class ControlStateMachine:
-    def __init__(self, sim_env, goal, obs, pathconfig=None):
+    def __init__(self, sim_env, goal, obs, at_pushing_pose=True, pathconfig=None):
         self.goal = goal
         self.state = 1 # PLAN OBJECT MOTION
         self.obs = obs
         self.car1_pose = pose_quat2euler(self.obs[0:6])
         self.car2_pose = pose_quat2euler(self.obs[6:12])
         self.block_pose = pose_quat2euler(self.obs[12:18])
-        self.at_pushing_pose = False
+        self.at_pushing_pose = at_pushing_pose
         self.env = sim_env.env
         self.current_arc = None
         self.pose_history_1=[]
@@ -110,14 +110,14 @@ class ControlStateMachine:
 
         # Create MPC controllers
         self.car1_tracking_controller = MPCPathTracker(
-            target_speed=0.25,
+            target_speed=0.32,
             position_threshold=0.15,
             angle_threshold=0.12
         )
         self.car1_tracking_controller.set_path(path1)
 
         self.car2_tracking_controller = MPCPathTracker(
-            target_speed=0.25,
+            target_speed=0.32,
             position_threshold=0.15,
             angle_threshold=0.12
         )
@@ -141,22 +141,22 @@ class ControlStateMachine:
         print(f"Car2 action: steering={action2[0]:.3f}, velocity={action2[1]:.3f}")
 
         # Reasonable goal tolerances
-        if (self.car1_tracking_controller.is_goal_reached(self.car1_pose, pos_tol=0.15, angle_tol=0.05)
-                and self.car2_tracking_controller.is_goal_reached(self.car2_pose, pos_tol=0.15, angle_tol=0.05)):
+        if (self.car1_tracking_controller.is_goal_reached(self.car1_pose, pos_tol=0.2, angle_tol=0.1)
+                and self.car2_tracking_controller.is_goal_reached(self.car2_pose, pos_tol=0.2, angle_tol=0.1)):
             self.at_pushing_pose = True
             self.state = GEN_ROBOT_PUSH_TRAJ
             print("Both cars reached pushing pose!")
             return [0, 0, 0, 0]
-
         self.pose_history_1.append(self.car1_pose)
         self.pose_history_2.append(self.car2_pose)
-
         return np.concatenate((action1, action2))
 
     def _optimize_pushing_poses(self):
         self.current_arc = self.path_all_arcs.pop(0)
         self.car1_next_push_pose, self.car2_next_push_pose = self.optimizer.optimal_poses_for_arc(self.current_arc, self.block_pose, self.car1_pose, self.car2_pose)
         self.state = PLAN_CAR_RELOCATION
+        if self.at_pushing_pose:
+            self.state = GEN_ROBOT_PUSH_TRAJ
         return [0, 0, 0, 0]
 
     def _global_frame_to_object_frame(self, pose, object_pose):
@@ -182,6 +182,7 @@ class ControlStateMachine:
 
     def _gen_push_traj_of_cars(self):
         print("Generating push trajectory...")
+        pdb.set_trace()
         start_x, start_y, start_theta, end_x, end_y, end_theta, k = self.current_arc
 
         # Generate dense waypoints along the object's arc
@@ -326,23 +327,8 @@ class ControlStateMachine:
             return [0, 0, 0, 0]
 
         # Check if current arc is complete
-        if ((self.car1_pushing_controller.is_goal_reached(self.car1_pose, pos_tol=0.2, angle_tol=0.15) and
-                self.car2_pushing_controller.is_goal_reached(self.car2_pose, pos_tol=0.2, angle_tol=0.15)) or
-            ((self.car1_pushing_controller.get_current_waypoint_index() == len(self.car1_pushing_controller.cx) - 1) and
-             (self.car2_pushing_controller.get_current_waypoint_index() == len(self.car2_pushing_controller.cx) - 1))):
-            print("Current arc complete, deciding next action...")
-            if len(self.path_all_arcs) == 0:
-                self.state = REACHED_GOAL
-                print("All arcs complete - Reached Goal!")
-                return [0, 0, 0, 0]
-            elif len(self.path_all_arcs) > 0:
-                self.at_pushing_pose = False
-                self.state = OPTIMIZE_PUSHING_POSES
-                print("Switching to next arc")
-                return [0, 0, 0, 0]
-
-        # if ((self.car1_pushing_controller.is_goal_reached(self.car1_pose, pos_tol=0.1, angle_tol=0.1) and
-        #         self.car2_pushing_controller.is_goal_reached(self.car2_pose, pos_tol=0.1, angle_tol=0.1)) or
+        # if ((self.car1_pushing_controller.is_goal_reached(self.car1_pose, pos_tol=0.2, angle_tol=0.15) and
+        #         self.car2_pushing_controller.is_goal_reached(self.car2_pose, pos_tol=0.2, angle_tol=0.15)) or
         #     ((self.car1_pushing_controller.get_current_waypoint_index() == len(self.car1_pushing_controller.cx) - 1) and
         #      (self.car2_pushing_controller.get_current_waypoint_index() == len(self.car2_pushing_controller.cx) - 1))):
         #     print("Current arc complete, deciding next action...")
@@ -351,10 +337,29 @@ class ControlStateMachine:
         #         print("All arcs complete - Reached Goal!")
         #         return [0, 0, 0, 0]
         #     elif len(self.path_all_arcs) > 0:
-        #         self.state = GEN_ROBOT_PUSH_TRAJ
-        #         self.current_arc = self.path_all_arcs.pop(0)
+        #         self.at_pushing_pose = False
+        #         self.state = OPTIMIZE_PUSHING_POSES
         #         print("Switching to next arc")
         #         return [0, 0, 0, 0]
+
+        if ((self.car1_pushing_controller.is_goal_reached(self.car1_pose, pos_tol=0.2, angle_tol=0.1) and
+                self.car2_pushing_controller.is_goal_reached(self.car2_pose, pos_tol=0.2, angle_tol=0.1)) or
+            ((self.car1_pushing_controller.get_current_waypoint_index() == len(self.car1_pushing_controller.cx) - 1) and
+             (self.car2_pushing_controller.get_current_waypoint_index() == len(self.car2_pushing_controller.cx) - 1))):
+            print("Current arc complete, deciding next action...")
+            if len(self.path_all_arcs) == 0:
+                self.state = REACHED_GOAL
+                print("All arcs complete - Reached Goal!")
+                return [0, 0, 0, 0]
+            elif len(self.path_all_arcs) > 0:
+                self.state = GEN_ROBOT_PUSH_TRAJ
+                self.current_arc = self.path_all_arcs.pop(0)
+
+                # for example 6:
+                # self.state = OPTIMIZE_PUSHING_POSES
+                # self.at_pushing_pose = False
+                print("Switching to next arc")
+                return [0, 0, 0, 0]
 
         # Execute coordinated pushing
         action1 = self.car1_pushing_controller.command(self.car1_pose)
