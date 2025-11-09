@@ -269,7 +269,7 @@ class RepositioningPlanner:
         self.object_size = object_size  # [w_obj_m, h_obj_m] in meters
         self.enable_viz = enable_viz  # Whether to show plots
         import cl_cbs
-        self.scale = 100.0
+        self.scale = 200.0
         self.cl_cbs = cl_cbs
         self.W = (self.map_size[0])
         self.H = (self.map_size[1])
@@ -350,7 +350,8 @@ class RepositioningPlanner:
 
             path0 = car_paths.get(0, [])
             path1 = car_paths.get(1, [])
-
+            print(path0)
+            print(path1)
             # Visualize if enabled and paths exist
             if self.enable_viz and path0 is not None and path1 is not None:
                 title = viz_title if viz_title else "CL-CBS Path Planning"

@@ -7,8 +7,10 @@ import matplotlib.pyplot as plt
 import time
 from collections import deque
 
+
 class Node:
     __slots__ = ('x', 'y', 'yaw', 'cost', 'parent', 'curvature')
+
     def __init__(self, x, y, yaw, cost, parent, curvature):
         self.x = x
         self.y = y
@@ -16,6 +18,7 @@ class Node:
         self.cost = cost
         self.parent = parent
         self.curvature = curvature
+
 
 def plot_map(obstacles, rectangular_object, start, goal, path):
     fig, ax = plt.subplots()
@@ -72,30 +75,31 @@ def plot_map(obstacles, rectangular_object, start, goal, path):
     ax.legend()
     return plt
 
-class HybridAStar:
-    def __init__(self,map_size,
-            obstacles, rectangular_object, R_min=None, R_max=None, resolution=None, step_size=None,
-            obstacles_frame=None,  # None -> auto-detect, "user" or "internal"
-            w_len=0.5,  # path length weight
-            w_kappa=0.4,  # |curvature| weight   (per meter)
-            w_kappa2=0.4,  # curvature^2 weight   (per meter)
-            w_dk=0.5,  # |Δcurvature| penalty per step
-            # TODO: This is for the first four cases
-            # w_gear=0.5*100000,  # switching fwd<->rev
-            # w_switch=0.5*100000,  # switching curvature sign (+ ↔ -)
-            # w_turn_in_place=0.5*100000,
-            # w_strafe =0.5*100000,
-            # TODO: This is for case 5 and 6
-             w_gear=1,  # switching fwd<->rev
-             w_switch=1,  # switching curvature sign (+ ↔ -)
-             w_turn_in_place=1,
-             w_strafe =1,
-            yaw_heuristic_scale=0.8,  # add heading term into heuristic (keeps admissible)
 
-    ):
+class HybridAStar:
+    def __init__(self, map_size,
+                 obstacles, rectangular_object, R_min=None, R_max=None, resolution=None, step_size=None,
+                 obstacles_frame=None,  # None -> auto-detect, "user" or "internal"
+                 w_len=0.5,  # path length weight
+                 w_kappa=0.4,  # |curvature| weight   (per meter)
+                 w_kappa2=0.4,  # curvature^2 weight   (per meter)
+                 w_dk=0.5,  # |Δcurvature| penalty per step
+                 # TODO: This is for the first four cases
+                 # w_gear=0.5 * 100000,  # switching fwd<->rev
+                 w_switch=0.5 * 100000,  # switching curvature sign (+ ↔ -)
+                 w_turn_in_place=0.5 * 100000,
+                 w_strafe=0.5 * 100000,
+                 # TODO: This is for case 5 and 6
+                  w_gear=1,  # switching fwd<->rev
+                 #  w_switch=1,  # switching curvature sign (+ ↔ -)
+                 #  w_turn_in_place=1,
+                 #  w_strafe =1,
+                 yaw_heuristic_scale=0.8,  # add heading term into heuristic (keeps admissible)
+
+                 ):
         self.map_size = map_size
         self.obstacles = obstacles
-        self.rectangular_object = 1.2 * np.array(rectangular_object)
+        self.rectangular_object = 1.0 * np.array(rectangular_object)
         self.resolution = resolution if resolution is not None else 0.01
         self.step_size = step_size if step_size is not None else 0.05
         self.R_min = R_min
@@ -114,6 +118,7 @@ class HybridAStar:
             self.obstacles_frame = obstacles_frame
         else:
             Wm, Hm = map_size
+
             def is_internal_pos(p):
                 return (p[0] < -Wm / 2 - 1e-6) or (p[0] > Wm / 2 + 1e-6) or \
                     (p[1] < -Hm / 2 - 1e-6) or (p[1] > Hm / 2 + 1e-6)
@@ -192,7 +197,7 @@ class HybridAStar:
     # ---- Planner ----
     def hybrid_a_star_planner(self, start, goal):
         start_time = time.time()
-        length, width = self.rectangular_object # w,l
+        length, width = self.rectangular_object  # w,l
 
         map_min_x, map_min_y = 0.0, 0.0
         map_max_x, map_max_y = self.map_size
@@ -242,8 +247,10 @@ class HybridAStar:
             iy = int((y - map_min_y) / resolution)
             h_hol = dist2d[iy, ix] if (0 <= ix < nx and 0 <= iy < ny) else np.inf
             delta = (goal_i[2] - yaw + math.pi) % (2 * math.pi) - math.pi
-            if delta >= 0: yaw_cost = self.R_min * delta
-            else: yaw_cost = self.R_min * (-delta)
+            if delta >= 0:
+                yaw_cost = self.R_min * delta
+            else:
+                yaw_cost = self.R_min * (-delta)
             return h_hol + self.yaw_heuristic_scale * yaw_cost
 
         def is_collision_pose(x, y, yaw):
@@ -279,11 +286,19 @@ class HybridAStar:
         primitives.append(('turn_right', turn_angle_per_step))
         primitives.append(('strafe_left', step_size))
         primitives.append(('strafe_right', step_size))
-        # print("Primitives generated:", len(primitives))
-        # print("Checking for backward straight:", (-1, 0.0) in primitives)
-        # for i, p in enumerate(primitives[:5]):  # Print first 5
-        #     print(f"  {i}: {p}")
-        n_samples = 3  # arc collision samples per primitive
+
+        # FIXED: Adaptive sampling based on curvature
+        def get_n_samples(k, motion_type='arc'):
+            """Return number of samples based on curvature and motion type"""
+            if motion_type == 'strafe' or motion_type == 'turn':
+                return 8  # Fixed samples for special motions
+            if abs(k) < 1e-12:  # straight line
+                return 8  # Still use decent sampling for straight lines
+            radius = 1.0 / abs(k)
+            # For tight turns (small radius), use more samples
+            # Ensure at least 10 samples, up to 30 for very tight turns
+            n = max(10, min(30, int(15 + 50 / radius)))
+            return n
 
         def expand(node):
             neigh = []
@@ -321,7 +336,8 @@ class HybridAStar:
                     nyp = node.y + distance * math.sin(perp_angle)
                     nyaw = node.yaw  # Heading unchanged
 
-                    # Check collision along the strafe path
+                    # FIXED: Use more samples for strafe collision check
+                    n_samples = get_n_samples(0.0, motion_type='strafe')
                     coll = False
                     for i in range(1, n_samples + 1):
                         t = i / n_samples
@@ -347,6 +363,9 @@ class HybridAStar:
                 direction, k = prim
                 yaw0 = node.yaw
 
+                # FIXED: Get adaptive number of samples based on curvature
+                n_samples = get_n_samples(k, motion_type='arc')
+
                 # Straight line motion (k ≈ 0)
                 if abs(k) < 1e-12:
                     nxp = node.x + direction * step_size * math.cos(yaw0)
@@ -354,7 +373,7 @@ class HybridAStar:
                     nyaw = yaw0
                     dtheta = 0.0
 
-                    # Collision check along straight line
+                    # FIXED: Better collision check along straight line with more samples
                     coll = False
                     for i in range(1, n_samples + 1):
                         t = i / n_samples
@@ -377,7 +396,7 @@ class HybridAStar:
                     nxp = cx + math.sin(nyaw) * r * turn_sign
                     nyp = cy - math.cos(nyaw) * r * turn_sign
 
-                    # Collision check along arc
+                    # FIXED: Much better collision check along arc with adaptive sampling
                     coll = False
                     for i in range(1, n_samples + 1):
                         frac = i / n_samples
@@ -479,6 +498,7 @@ class HybridAStar:
                 push_idx += 1
                 heapq.heappush(openq, (g + h, push_idx, nb))
         return None
+
 
 if __name__ == '__main__':
     planning_start = time.time()

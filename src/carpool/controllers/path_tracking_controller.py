@@ -6,7 +6,6 @@ from ..utils.car_cost_function import CarCostFunctions
 
 class MPPI_R(MPPI):
     """Modified MPPI with direction change support."""
-
     def change_direction(self):
         current_max_velocity = self.u_max[1]
         current_min_velocity = self.u_min[1]
@@ -56,7 +55,7 @@ class PathTracking:
             noise_sigma=torch.tensor(self.noise_sigma, dtype=torch.float32),
             num_samples=self.N_SAMPLES,
             horizon=self.TIMESTEPS,
-            lambda_=0.01,
+            lambda_=0.1,
             device='cpu',
             noise_mu=torch.tensor(self.noise_mu, dtype=torch.float32),
             u_min=torch.tensor(self.ACTION_LOW, dtype=torch.float32, device=self.d),
@@ -88,9 +87,9 @@ class PathTracking:
         self.ctrl.set_reverse()
         self.forward = False
 
-    def set_trajectory(self, trajectory, target_spacing=0.05, default_velocity=0.2):
+    def set_trajectory(self, trajectory, target_spacing=0.05, default_velocity=0.2, use_linear_interpolation=True):
         self.reset()
-        self.cost.set_trajectory(trajectory, target_spacing, default_velocity)
+        self.cost.set_trajectory(trajectory, target_spacing, default_velocity, use_linear_interpolation)
         self.replan = False
         self.previous_position = trajectory[0, :2]
 

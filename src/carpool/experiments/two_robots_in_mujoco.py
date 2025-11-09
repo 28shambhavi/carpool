@@ -15,7 +15,7 @@ def run_carpool_simulation(test_case, path_tracking_config=None):
     rate = Rate(1 / config.dt)
 
     start_time = time.time()
-    max_time = 200
+    max_time = 1200
     state_machine = ControlStateMachine(sim_env, object_goal_pose, obs, path_tracking_config)
 
     while state_machine.state != REACHED_GOAL and time.time() - start_time < max_time:
@@ -26,4 +26,4 @@ def run_carpool_simulation(test_case, path_tracking_config=None):
     sim_env.close()
 
 if __name__ == "__main__":
-    run_carpool_simulation(test_case=5)
+    run_carpool_simulation(test_case=6)

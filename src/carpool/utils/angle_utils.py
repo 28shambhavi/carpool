@@ -49,8 +49,9 @@ def check_pose_error(theta_pose, goal_pose, goal_tolerance):
     return False
 
 def pose_quat2euler(pose):
-    return np.array(
-        [pose[0], pose[1], (np.pi - R.from_quat(pose[2:6]).as_euler('xyz', degrees=False)[0]) % (2 * np.pi)])
+    return np.array([pose[0],
+                     pose[1],
+                     wrap(np.pi - R.from_quat(pose[2:6]).as_euler('xyz', degrees=False)[0])])
 
 
 def pose_euler2quat(pose):

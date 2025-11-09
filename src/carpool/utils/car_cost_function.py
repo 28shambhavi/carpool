@@ -179,12 +179,16 @@ class CarCostFunctions():
                 position_error = np.linalg.norm(car[i, :2] - target[:2])
                 angle_diff = car[i, 2] - target[2]
                 angle_diff = ((angle_diff + np.pi) % (2 * np.pi)) - np.pi
-                cost[i] = 5.0 * position_error ** 2 + 3.0 * angle_diff ** 2
+                cost[i] = 5.0 * position_error ** 2 + 15.0 * angle_diff ** 2
         else:
             # Vectorized targeting (fast for straight sections)
-            lookahead_idx = min(self.progress_index + int(self.lookahead_distance / 0.05),
-                len(self.trajectory) - 1
-            )
+            if hasattr(self, 'cumulative_distances') and self.cumulative_distances is not None:
+                current_distance = self.cumulative_distances[self.progress_index]
+                target_distance = current_distance + self.lookahead_distance
+                lookahead_idx = np.searchsorted(self.cumulative_distances, target_distance)
+                lookahead_idx = min(lookahead_idx, len(self.trajectory) - 1)
+            else:
+                lookahead_idx = min(self.progress_index + 1, len(self.trajectory) - 1)
             target = self.trajectory[lookahead_idx]
             position_error = np.linalg.norm(car[:, :2] - target[:2], axis=1)
             angle_diff = car[:, 2] - target[2]
@@ -193,7 +197,7 @@ class CarCostFunctions():
 
         # Common costs (always vectorized)
         traj_cost = 8.0 * self.tan_dist(car[:, :2], self.trajectory[:, :2]) ** 2
-        action_cost = 0.005 * actions_np[:, 0] ** 2 + 0.001 * actions_np[:, 1] ** 2
+        action_cost = 0.001 * actions_np[:, 0] ** 2 + 0.0001 * actions_np[:, 1] ** 2
         total_cost = cost + traj_cost + action_cost
 
         return torch.tensor(total_cost, dtype=torch.float32)
@@ -236,7 +240,7 @@ class CarCostFunctions():
 
         return torch.stack((x_next, y_next, theta_next), dim=1)
 
-    def set_trajectory(self, trajectory, target_spacing=0.05, default_velocity=0.2):
+    def set_trajectory(self, trajectory, target_spacing=0.05, default_velocity=0.2, use_linear_interpolation=True):
         self.original_trajectory = trajectory
 
         # Detect direction changes by looking at velocity sign changes
@@ -256,21 +260,22 @@ class CarCostFunctions():
                 segments.append(segment)
             start_idx = change_idx
 
-        # Interpolate each segment independently (NO turn interpolation between segments)
+        # Interpolate each segment
         self.trajectory_list = []
         for segment in segments:
-            interpolated = self._interpolate_segment_with_velocity(
-                segment, target_spacing, default_velocity
-            )
+            if use_linear_interpolation:
+                interpolated = self._linear_interpolate_segment(
+                    segment, target_spacing, default_velocity
+                )
 
-            # Convert to list if it's a numpy array
-            if isinstance(interpolated, np.ndarray):
-                interpolated = interpolated.tolist()
+            # Convert to numpy array if needed
+            if isinstance(interpolated, list):
+                interpolated = np.array(interpolated)
 
             self.trajectory_list.append(interpolated)
 
         # Set initial trajectory
-        self.trajectory = np.array(self.trajectory_list[0])
+        self.trajectory = self.trajectory_list[0]
         self.dir_idx = 0
         self.goal = self.trajectory_list[-1][-1]
 
@@ -284,7 +289,7 @@ class CarCostFunctions():
         # Plot original trajectory
         orig_x = [p[0] for p in self.original_trajectory]
         orig_y = [p[1] for p in self.original_trajectory]
-        plt.plot(orig_x, orig_y, 'b.-', alpha=0.5, label='Original', markersize=6, linewidth=2)
+        plt.plot(orig_x, orig_y, 'b.-', alpha=0.5, label='Original', markersize=8, linewidth=2)
 
         # Plot orientation arrows for original
         for i in range(0, len(self.original_trajectory), max(1, len(self.original_trajectory) // 15)):
@@ -294,22 +299,21 @@ class CarCostFunctions():
             plt.arrow(x, y, dx, dy, head_width=0.06, head_length=0.04,
                       fc='blue', ec='blue', alpha=0.6, linewidth=1.5)
 
-        # Plot interpolated trajectory segments (each segment separate)
+        # Plot interpolated trajectory segments
         colors = ['red', 'green', 'orange', 'purple', 'cyan', 'magenta']
         for idx, traj in enumerate(self.trajectory_list):
             color = colors[idx % len(colors)]
             interp_x = [p[0] for p in traj]
             interp_y = [p[1] for p in traj]
 
-            # Check if this segment is forward or reverse
             is_reverse = len(traj[0]) > 3 and traj[0][3] < 0
             linestyle = '--' if is_reverse else '-'
 
             plt.plot(interp_x, interp_y, linestyle, color=color, alpha=0.8, linewidth=2,
-                     label=f'Seg {idx + 1} ({"Rev" if is_reverse else "Fwd"})')
+                     label=f'Seg {idx + 1} ({"Rev" if is_reverse else "Fwd"}) - {len(traj)} pts')
 
-            # Plot orientation arrows for interpolated
-            arrow_step = max(1, len(traj) // 25)
+            # Plot orientation arrows for interpolated (every 10th point)
+            arrow_step = max(1, len(traj) // 20)
             for i in range(0, len(traj), arrow_step):
                 x, y, theta = traj[i][:3]
                 dx = 0.12 * np.cos(theta)
@@ -317,11 +321,11 @@ class CarCostFunctions():
                 plt.arrow(x, y, dx, dy, head_width=0.05, head_length=0.035,
                           fc=color, ec=color, alpha=0.8, linewidth=1.2)
 
-            # Mark start of each segment with a circle
+            # Mark start of each segment
             plt.plot(interp_x[0], interp_y[0], 'o', color=color, markersize=12,
                      markeredgewidth=2, markeredgecolor='black')
 
-        # Mark direction change points (where robot must STOP)
+        # Mark direction change points
         for idx in direction_change_indices:
             x, y = self.original_trajectory[idx][0], self.original_trajectory[idx][1]
             plt.plot(x, y, 'kX', markersize=15, markeredgewidth=3,
@@ -329,52 +333,149 @@ class CarCostFunctions():
 
         plt.xlabel('X', fontsize=12)
         plt.ylabel('Y', fontsize=12)
-        plt.title('Multi-Segment Trajectory (Robot stops at direction changes)', fontsize=14)
+        plt.title('Linear Interpolated Trajectory (Dense points, preserves geometry)', fontsize=14)
         plt.axis('equal')
         plt.grid(True, alpha=0.3)
         plt.legend(fontsize=9, loc='best')
         plt.tight_layout()
         plt.show()
 
-    def _detect_direction_changes(self, waypoints):
-        """Detect where vehicle should change between forward/reverse."""
-        direction_changes = []
+    # def _process_segment_without_interpolation(self, waypoints, default_velocity):
+    #     """
+    #     Process segment WITHOUT interpolation - just ensure it has velocity column.
+    #     Returns Nx4 array: [x, y, heading, velocity]
+    #     """
+    #     waypoints = np.array(waypoints)
+    #
+    #     if len(waypoints) < 1:
+    #         return waypoints
+    #
+    #     # If waypoints already have velocity (4 columns), return as-is
+    #     if waypoints.shape[1] >= 4:
+    #         return waypoints
+    #
+    #     # If only [x, y, heading], add velocity column
+    #     if waypoints.shape[1] == 3:
+    #         velocities = np.full(len(waypoints), default_velocity)
+    #         return np.column_stack([waypoints, velocities])
+    #
+    #     return waypoints
 
-        if len(waypoints) < 2:
-            return direction_changes
+    # def _detect_direction_changes(self, waypoints):
+    #     """Detect where vehicle should change between forward/reverse."""
+    #     direction_changes = []
+    #
+    #     if len(waypoints) < 2:
+    #         return direction_changes
+    #
+    #     current_forward = None
+    #     for i in range(len(waypoints) - 1):
+    #         movement = waypoints[i + 1, :2] - waypoints[i, :2]
+    #         if np.linalg.norm(movement) < 1e-6:
+    #             continue
+    #
+    #         movement_angle = np.arctan2(movement[1], movement[0])
+    #         car_heading = waypoints[i, 2]
+    #         angle_diff = np.abs(((movement_angle - car_heading + np.pi) % (2 * np.pi)) - np.pi)
+    #
+    #         next_forward = angle_diff < np.pi / 2
+    #
+    #         if current_forward is None:
+    #             current_forward = next_forward
+    #         elif next_forward != current_forward:
+    #             direction_changes.append(i + 1)
+    #             current_forward = next_forward
+    #
+    #     return direction_changes
+    #
+    # def _interpolate_segment_with_velocity(self, waypoints, target_spacing, default_velocity):
+    #     """
+    #     Interpolate segment and estimate velocities.
+    #     Returns Nx4 array: [x, y, heading, velocity]
+    #     """
+    #     if len(waypoints) < 2:
+    #         # Add velocity column if not present
+    #         if waypoints.shape[1] == 3:
+    #             return np.column_stack([waypoints, np.full(len(waypoints), default_velocity)])
+    #         return waypoints
+    #
+    #     # Remove duplicates
+    #     unique_mask = np.ones(len(waypoints), dtype=bool)
+    #     for i in range(1, len(waypoints)):
+    #         if np.allclose(waypoints[i, :2], waypoints[i - 1, :2], atol=1e-6):
+    #             unique_mask[i] = False
+    #     waypoints = waypoints[unique_mask]
+    #
+    #     if len(waypoints) < 2:
+    #         if waypoints.shape[1] == 3:
+    #             return np.column_stack([waypoints, np.full(len(waypoints), default_velocity)])
+    #         return waypoints
+    #
+    #     # Calculate total length
+    #     total_length = 0
+    #     for i in range(1, len(waypoints)):
+    #         total_length += np.linalg.norm(waypoints[i, :2] - waypoints[i - 1, :2])
+    #
+    #     if total_length < target_spacing:
+    #         if waypoints.shape[1] == 3:
+    #             return np.column_stack([waypoints, np.full(len(waypoints), default_velocity)])
+    #         return waypoints
+    #
+    #     try:
+    #         # Spline interpolation
+    #         x = waypoints[:, 0]
+    #         y = waypoints[:, 1]
+    #         headings = waypoints[:, 2]
+    #
+    #         k = min(3, len(waypoints) - 1)
+    #         tck, u = splprep([x, y], s=0, k=k)
+    #
+    #         num_points = max(int(total_length / target_spacing) + 1, 2)
+    #         u_new = np.linspace(0, 1, num_points)
+    #
+    #         new_x, new_y = splev(u_new, tck)
+    #         dx, dy = splev(u_new, tck, der=1)
+    #         new_headings = np.arctan2(dy, dx)
+    #
+    #         # Preserve endpoint headings
+    #         new_headings[0] = headings[0]
+    #         new_headings[-1] = headings[-1]
+    #
+    #         # Estimate velocities from curvature
+    #         velocities = np.full(num_points, default_velocity)
+    #
+    #         # Reduce velocity in high-curvature regions
+    #         ddx, ddy = splev(u_new, tck, der=2)
+    #         curvature = np.abs(dx * ddy - dy * ddx) / (dx ** 2 + dy ** 2) ** 1.5
+    #         curvature = np.nan_to_num(curvature, nan=0.0, posinf=0.0, neginf=0.0)
+    #
+    #         # Scale velocity inversely with curvature
+    #         max_curvature = 2.0  # rad/m
+    #         velocities = default_velocity * np.exp(-2.0 * curvature / max_curvature)
+    #         velocities = np.clip(velocities, 0.05, default_velocity)
+    #
+    #         return np.column_stack([new_x, new_y, new_headings, velocities])
+    #
+    #     except Exception as e:
+    #         # Fallback
+    #         if waypoints.shape[1] == 3:
+    #             return np.column_stack([waypoints, np.full(len(waypoints), default_velocity)])
+    #         return waypoints
 
-        current_forward = None
-        for i in range(len(waypoints) - 1):
-            movement = waypoints[i + 1, :2] - waypoints[i, :2]
-            if np.linalg.norm(movement) < 1e-6:
-                continue
-
-            movement_angle = np.arctan2(movement[1], movement[0])
-            car_heading = waypoints[i, 2]
-            angle_diff = np.abs(((movement_angle - car_heading + np.pi) % (2 * np.pi)) - np.pi)
-
-            next_forward = angle_diff < np.pi / 2
-
-            if current_forward is None:
-                current_forward = next_forward
-            elif next_forward != current_forward:
-                direction_changes.append(i + 1)
-                current_forward = next_forward
-
-        return direction_changes
-
-    def _interpolate_segment_with_velocity(self, waypoints, target_spacing, default_velocity):
+    def _linear_interpolate_segment(self, waypoints, target_spacing=0.05, default_velocity=0.2):
         """
-        Interpolate segment and estimate velocities.
+        Linear interpolation between waypoints - interpolates position AND heading.
         Returns Nx4 array: [x, y, heading, velocity]
         """
+        waypoints = np.array(waypoints)
+
         if len(waypoints) < 2:
-            # Add velocity column if not present
+            # Single waypoint - just ensure it has velocity
             if waypoints.shape[1] == 3:
                 return np.column_stack([waypoints, np.full(len(waypoints), default_velocity)])
             return waypoints
 
-        # Remove duplicates
+        # Remove consecutive duplicates
         unique_mask = np.ones(len(waypoints), dtype=bool)
         for i in range(1, len(waypoints)):
             if np.allclose(waypoints[i, :2], waypoints[i - 1, :2], atol=1e-6):
@@ -386,53 +487,65 @@ class CarCostFunctions():
                 return np.column_stack([waypoints, np.full(len(waypoints), default_velocity)])
             return waypoints
 
-        # Calculate total length
-        total_length = 0
-        for i in range(1, len(waypoints)):
-            total_length += np.linalg.norm(waypoints[i, :2] - waypoints[i - 1, :2])
+        interpolated_points = []
 
-        if total_length < target_spacing:
-            if waypoints.shape[1] == 3:
-                return np.column_stack([waypoints, np.full(len(waypoints), default_velocity)])
-            return waypoints
+        for i in range(len(waypoints) - 1):
+            start = waypoints[i][:3]  # [x, y, heading]
+            end = waypoints[i + 1][:3]
 
-        try:
-            # Spline interpolation
-            x = waypoints[:, 0]
-            y = waypoints[:, 1]
-            headings = waypoints[:, 2]
+            # Calculate distance between waypoints
+            segment_length = np.linalg.norm(end[:2] - start[:2])
 
-            k = min(3, len(waypoints) - 1)
-            tck, u = splprep([x, y], s=0, k=k)
+            if segment_length < target_spacing:
+                # Segment too short, just add the start point
+                interpolated_points.append(start)
+                continue
 
-            num_points = max(int(total_length / target_spacing) + 1, 2)
-            u_new = np.linspace(0, 1, num_points)
+            # Number of points needed for this segment
+            num_points = max(int(np.ceil(segment_length / target_spacing)), 2)
 
-            new_x, new_y = splev(u_new, tck)
-            dx, dy = splev(u_new, tck, der=1)
-            new_headings = np.arctan2(dy, dx)
+            # Linear interpolation parameter
+            t_values = np.linspace(0, 1, num_points, endpoint=False)
 
-            # Preserve endpoint headings
-            new_headings[0] = headings[0]
-            new_headings[-1] = headings[-1]
+            # Properly interpolate heading (handle angle wrapping)
+            start_heading = start[2]
+            end_heading = end[2]
 
-            # Estimate velocities from curvature
-            velocities = np.full(num_points, default_velocity)
+            # Find shortest angular path
+            heading_diff = end_heading - start_heading
+            heading_diff = ((heading_diff + np.pi) % (2 * np.pi)) - np.pi
 
-            # Reduce velocity in high-curvature regions
-            ddx, ddy = splev(u_new, tck, der=2)
-            curvature = np.abs(dx * ddy - dy * ddx) / (dx ** 2 + dy ** 2) ** 1.5
-            curvature = np.nan_to_num(curvature, nan=0.0, posinf=0.0, neginf=0.0)
+            for t in t_values:
+                # Interpolate position
+                x = start[0] + t * (end[0] - start[0])
+                y = start[1] + t * (end[1] - start[1])
 
-            # Scale velocity inversely with curvature
-            max_curvature = 2.0  # rad/m
-            velocities = default_velocity * np.exp(-2.0 * curvature / max_curvature)
-            velocities = np.clip(velocities, 0.05, default_velocity)
+                # Interpolate heading (using shortest path)
+                heading = start_heading + t * heading_diff
+                heading = (heading + np.pi) % (2 * np.pi) - np.pi  # Wrap to [-pi, pi]
 
-            return np.column_stack([new_x, new_y, new_headings, velocities])
+                interpolated_points.append([x, y, heading])
 
-        except Exception as e:
-            # Fallback
-            if waypoints.shape[1] == 3:
-                return np.column_stack([waypoints, np.full(len(waypoints), default_velocity)])
-            return waypoints
+        # Add the final waypoint
+        interpolated_points.append(waypoints[-1][:3])
+
+        interpolated_points = np.array(interpolated_points)
+
+        # Add velocity column
+        # Estimate velocity based on heading change rate
+        velocities = np.full(len(interpolated_points), default_velocity)
+
+        if len(interpolated_points) > 2:
+            for i in range(1, len(interpolated_points) - 1):
+                # Calculate heading change
+                heading_change = interpolated_points[i + 1, 2] - interpolated_points[i - 1, 2]
+                heading_change = ((heading_change + np.pi) % (2 * np.pi)) - np.pi
+                heading_change = abs(heading_change)
+
+                # Reduce velocity for sharp turns
+                if heading_change > 0.3:  # ~17 degrees over 2 steps
+                    velocities[i] = default_velocity * 0.5
+                elif heading_change > 0.15:  # ~8.5 degrees
+                    velocities[i] = default_velocity * 0.7
+
+        return np.column_stack([interpolated_points, velocities])
