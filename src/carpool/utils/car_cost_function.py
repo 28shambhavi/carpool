@@ -3,6 +3,7 @@ import numpy as np
 import torch
 from scipy.interpolate import CubicSpline, splprep, splev
 from ..utils.load_config import multi_agent_config as config
+import matplotlib.pyplot as plt
 
 class CarCostFunctions():
     def __init__(self, device='cpu', weights=None):
@@ -237,7 +238,16 @@ class CarCostFunctions():
 
     def set_trajectory(self, trajectory, target_spacing=0.05, default_velocity=0.2):
         self.original_trajectory = trajectory
-        direction_change_indices = self._detect_direction_changes(trajectory)
+
+        # Detect direction changes by looking at velocity sign changes
+        direction_change_indices = []
+        for i in range(1, len(trajectory)):
+            if len(trajectory[i]) > 3 and len(trajectory[i - 1]) > 3:
+                # Check if velocity sign changes (forward/backward)
+                if np.sign(trajectory[i][3]) != np.sign(trajectory[i - 1][3]):
+                    direction_change_indices.append(i)
+
+        # Split into segments at direction changes
         segments = []
         start_idx = 0
         for change_idx in direction_change_indices + [len(trajectory)]:
@@ -246,21 +256,85 @@ class CarCostFunctions():
                 segments.append(segment)
             start_idx = change_idx
 
+        # Interpolate each segment independently (NO turn interpolation between segments)
         self.trajectory_list = []
         for segment in segments:
             interpolated = self._interpolate_segment_with_velocity(
                 segment, target_spacing, default_velocity
             )
+
+            # Convert to list if it's a numpy array
+            if isinstance(interpolated, np.ndarray):
+                interpolated = interpolated.tolist()
+
             self.trajectory_list.append(interpolated)
 
         # Set initial trajectory
-        self.trajectory = self.trajectory_list[0]
+        self.trajectory = np.array(self.trajectory_list[0])
         self.dir_idx = 0
         self.goal = self.trajectory_list[-1][-1]
 
         # Compute arc-length parameterization
         self._compute_arc_length()
         self.progress_index = 0
+
+        # Plot trajectories
+        plt.figure(figsize=(10, 10))
+
+        # Plot original trajectory
+        orig_x = [p[0] for p in self.original_trajectory]
+        orig_y = [p[1] for p in self.original_trajectory]
+        plt.plot(orig_x, orig_y, 'b.-', alpha=0.5, label='Original', markersize=6, linewidth=2)
+
+        # Plot orientation arrows for original
+        for i in range(0, len(self.original_trajectory), max(1, len(self.original_trajectory) // 15)):
+            x, y, theta = self.original_trajectory[i][:3]
+            dx = 0.15 * np.cos(theta)
+            dy = 0.15 * np.sin(theta)
+            plt.arrow(x, y, dx, dy, head_width=0.06, head_length=0.04,
+                      fc='blue', ec='blue', alpha=0.6, linewidth=1.5)
+
+        # Plot interpolated trajectory segments (each segment separate)
+        colors = ['red', 'green', 'orange', 'purple', 'cyan', 'magenta']
+        for idx, traj in enumerate(self.trajectory_list):
+            color = colors[idx % len(colors)]
+            interp_x = [p[0] for p in traj]
+            interp_y = [p[1] for p in traj]
+
+            # Check if this segment is forward or reverse
+            is_reverse = len(traj[0]) > 3 and traj[0][3] < 0
+            linestyle = '--' if is_reverse else '-'
+
+            plt.plot(interp_x, interp_y, linestyle, color=color, alpha=0.8, linewidth=2,
+                     label=f'Seg {idx + 1} ({"Rev" if is_reverse else "Fwd"})')
+
+            # Plot orientation arrows for interpolated
+            arrow_step = max(1, len(traj) // 25)
+            for i in range(0, len(traj), arrow_step):
+                x, y, theta = traj[i][:3]
+                dx = 0.12 * np.cos(theta)
+                dy = 0.12 * np.sin(theta)
+                plt.arrow(x, y, dx, dy, head_width=0.05, head_length=0.035,
+                          fc=color, ec=color, alpha=0.8, linewidth=1.2)
+
+            # Mark start of each segment with a circle
+            plt.plot(interp_x[0], interp_y[0], 'o', color=color, markersize=12,
+                     markeredgewidth=2, markeredgecolor='black')
+
+        # Mark direction change points (where robot must STOP)
+        for idx in direction_change_indices:
+            x, y = self.original_trajectory[idx][0], self.original_trajectory[idx][1]
+            plt.plot(x, y, 'kX', markersize=15, markeredgewidth=3,
+                     label='Stop Point' if idx == direction_change_indices[0] else '')
+
+        plt.xlabel('X', fontsize=12)
+        plt.ylabel('Y', fontsize=12)
+        plt.title('Multi-Segment Trajectory (Robot stops at direction changes)', fontsize=14)
+        plt.axis('equal')
+        plt.grid(True, alpha=0.3)
+        plt.legend(fontsize=9, loc='best')
+        plt.tight_layout()
+        plt.show()
 
     def _detect_direction_changes(self, waypoints):
         """Detect where vehicle should change between forward/reverse."""

@@ -25,147 +25,6 @@ GOAL_DIS = 0.1
 CONTACT_DIS = 0.2
 CONTACT_YAW = 0.2
 
-
-class SimplePathFollower:
-    """
-    A simple path following controller using pure pursuit algorithm.
-    Follows a list of waypoints exactly without complex optimization.
-    """
-
-    def __init__(self, lookahead_distance=0.3, position_threshold=0.1,
-                 angle_threshold=0.2, max_steering=0.05, max_velocity=0.15):
-        """
-        Args:
-            lookahead_distance: Distance ahead to look for target point
-            position_threshold: Distance threshold to consider waypoint reached
-            angle_threshold: Angle threshold to consider goal orientation reached
-            max_steering: Maximum steering angle (rad)
-            max_velocity: Maximum forward velocity (m/s)
-        """
-        self.lookahead_distance = lookahead_distance
-        self.position_threshold = position_threshold
-        self.angle_threshold = angle_threshold
-        self.max_steering = max_steering
-        self.max_velocity = max_velocity
-
-        self.path = None
-        self.current_waypoint_idx = 0
-        self.goal_reached = False
-
-    def set_path(self, waypoints):
-        """
-        Set the path to follow.
-
-        Args:
-            waypoints: List or array of poses [(x, y, theta), ...]
-        """
-        self.path = np.array(waypoints)
-        self.current_waypoint_idx = 0
-        self.goal_reached = False
-
-    def get_current_waypoint_index(self):
-        """Return current waypoint index"""
-        return self.current_waypoint_idx
-
-    def _wrap_angle(self, angle):
-        """Wrap angle to [-pi, pi]"""
-        return (angle + np.pi) % (2 * np.pi) - np.pi
-
-    def _find_lookahead_point(self, current_pose):
-        """Find the point on path at lookahead distance"""
-        current_pos = current_pose[:2]
-
-        # Start from current waypoint
-        for i in range(self.current_waypoint_idx, len(self.path)):
-            waypoint_pos = self.path[i, :2]
-            distance = np.linalg.norm(waypoint_pos - current_pos)
-
-            if distance >= self.lookahead_distance:
-                return self.path[i], i
-
-        # If no point found at lookahead distance, return last point
-        return self.path[-1], len(self.path) - 1
-
-    def _update_waypoint(self, current_pose):
-        """Update current waypoint if close enough to it"""
-        if self.current_waypoint_idx >= len(self.path):
-            return
-
-        target = self.path[self.current_waypoint_idx]
-        distance = np.linalg.norm(current_pose[:2] - target[:2])
-
-        if distance < self.position_threshold:
-            self.current_waypoint_idx += 1
-
-    def is_goal_reached(self, current_pose, pos_tol=None, angle_tol=None):
-        """
-        Check if final goal is reached.
-
-        Args:
-            current_pose: Current pose (x, y, theta)
-            pos_tol: Position tolerance (uses default if None)
-            angle_tol: Angle tolerance (uses default if None)
-        """
-        if self.path is None or len(self.path) == 0:
-            return True
-
-        pos_tol = pos_tol if pos_tol is not None else self.position_threshold
-        angle_tol = angle_tol if angle_tol is not None else self.angle_threshold
-
-        goal = self.path[-1]
-        pos_error = np.linalg.norm(current_pose[:2] - goal[:2])
-        angle_error = abs(self._wrap_angle(current_pose[2] - goal[2]))
-
-        return pos_error < pos_tol and angle_error < angle_tol
-
-    def command(self, current_pose):
-        if self.path is None or len(self.path) == 0:
-            return np.array([0.0, 0.0])
-
-        # Check if goal reached
-        if self.is_goal_reached(current_pose):
-            self.goal_reached = True
-            return np.array([0.0, 0.0])
-
-        # Update current waypoint
-        self._update_waypoint(current_pose)
-
-        # Get lookahead point
-        target_point, _ = self._find_lookahead_point(current_pose)
-
-        # Calculate steering angle using pure pursuit
-        # Transform target to robot frame
-        dx = target_point[0] - current_pose[0]
-        dy = target_point[1] - current_pose[1]
-
-        # Rotate to robot frame
-        cos_theta = np.cos(current_pose[2])
-        sin_theta = np.sin(current_pose[2])
-
-        local_x = cos_theta * dx + sin_theta * dy
-        local_y = -sin_theta * dx + cos_theta * dy
-
-        # Pure pursuit steering
-        ld_squared = local_x ** 2 + local_y ** 2
-        ld = np.sqrt(ld_squared)
-
-        if ld < 0.05:
-            steering = 0.0
-        else:
-            # Steering angle for pure pursuit: arctan(2*L*sin(alpha)/ld)
-            # Simplified: arctan(2*y/ld) where y is lateral error
-            steering = np.arctan2(2.0 * local_y, ld)
-
-
-        # Clip steering
-        steering = np.clip(steering, -self.max_steering, self.max_steering)
-        print("steering", steering)
-        # Calculate velocity (slow down for large steering angles)
-        velocity = self.max_velocity * (1.0 - 0.5 * abs(steering) / self.max_steering)
-        velocity = max(velocity, 0.05)  # Minimum velocity
-
-        return np.array([steering, velocity])
-
 def _wrap(a):
     return (a + np.pi) % (2 * np.pi) - np.pi
 
@@ -231,14 +90,14 @@ class ControlStateMachine:
     def _initialize_path_tracking_controller(self, path):
         cfg = {'noise_mu': np.array([0.0, 0.0]),
                'noise_sigma': np.array([[0.05, 0.0], [0.0, 0.09]]),
-               'n_samples': 200,
+               'n_samples': 1000,
                'predict_horizon': 50,
                'action_low': np.array([-0.29, -0.15]),
-               'action_high': np.array([0.29, 0.30]),
-               'waypoint_lookahead': 0.12,
-               'waypoint_reached_threshold': 0.09,
-               'direction_change_threshold': 0.15,
-               'target_spacing': 0.05}
+               'action_high': np.array([0.29, 0.4]),
+               'waypoint_lookahead': 0.3,
+               'waypoint_reached_threshold': 0.05,
+               'direction_change_threshold': 0.10,
+               'target_spacing': 0.1}
 
         controller = PathTracking(
             cfg['noise_mu'],
@@ -249,19 +108,6 @@ class ControlStateMachine:
             cfg['action_high']
         )
         controller.set_trajectory(np.array(path))
-        # cfg = {
-        #     'noise_mu': np.array([0.0, 0.15]),
-        #     'noise_sigma': np.array([[0.3, 0.0], [0.0, 0.4]]),
-        #     'n_samples': 200,
-        #     'predict_horizon': 30,
-        #     'action_low': np.array([-0.29, 0.0]),
-        #     'action_high': np.array([0.29, 0.30]),
-        #     'target_spacing': 0.05,
-        #     'default_velocity': 0.2  # ADD THIS
-        # }
-        # controller.cost.lookahead_distance = 0.2
-        # controller.reached_threshold = 0.06
-        # controller.direction_change_threshold = 0.1
         return controller
 
     def _initialize_pushing_controller(self, path):
@@ -302,33 +148,9 @@ class ControlStateMachine:
 
     def _plan_relocation_of_cars(self):
         poses = [self._rounded_pose(self.car1_pose), self._rounded_pose(self.car2_pose), self._rounded_pose(self.car1_next_push_pose), self._rounded_pose(self.car2_next_push_pose)]
-        # poses = [self._rounded_pose(self.car1_pose), self._rounded_pose(self.car2_pose),
-        #          self._rounded_pose_away(self.car1_next_push_pose), self._rounded_pose_away(self.car2_next_push_pose)]
-        # if ((np.sum(np.array(poses[0])-np.array(poses[2]))<0.15 and
-        #      np.sum(np.array(poses[1])-np.array(poses[3])) < 0.1) or
-        #         (np.sum(np.array(poses[0])-np.array(poses[3])) <0.15 and
-        #         np.sum(np.array(poses[1])-np.array(poses[2])) < 0.1)):
-        #     print("already at pushing pose")
-        #     self.state = GEN_ROBOT_PUSH_TRAJ
-        #     return [0, 0, 0, 0]
         path1, path2 = self.reposition_planner.solve_cl_cbs_from_mujoco(poses, self.block_pose)
-        # print("path1", path1)
-        # print("path2", path2)
         self.state = EXECUTE_RELOCATION
-        self.car1_tracking_controller = self._initialize_path_tracking_controller(path1)
-        self.car2_tracking_controller = self._initialize_path_tracking_controller(path2)
-        # self.car1_tracking_controller = SimplePathFollower(
-        #     lookahead_distance=0.3,
-        #     position_threshold=0.1,
-        #     max_velocity=0.30
-        # )
-        # self.car1_tracking_controller.set_path(path1)
-        # self.car2_tracking_controller = SimplePathFollower(
-        #     lookahead_distance=0.3,
-        #     position_threshold=0.1,
-        #     max_velocity=0.30
-        # )
-        # self.car2_tracking_controller.set_path(path2)
+        self.car2_tracking_controller.set_path(path2)
         return [0, 0, 0, 0]
 
     def _execute_relocation_of_cars(self):
@@ -340,10 +162,8 @@ class ControlStateMachine:
         action1 = self.car1_tracking_controller.ctrl.command(self.car1_pose)
         action2 = self.car2_tracking_controller.ctrl.command(self.car2_pose)
 
-        idx1 = self.car1_tracking_controller.get_reference_index(self.car1_pose)
-        idx2 = self.car2_tracking_controller.get_reference_index(self.car2_pose)
-        print("index1", idx1, "index2", idx2)
-        if self.car1_tracking_controller.is_goal_reached(self.car1_pose, 0.2, 0.5) and self.car2_tracking_controller.is_goal_reached(self.car2_pose, 0.2, 0.5):
+        if (self.car1_tracking_controller.is_goal_reached(self.car1_pose, 0.1, 0.35)
+                and self.car2_tracking_controller.is_goal_reached(self.car2_pose, 0.1, 0.35)):
             self.at_pushing_pose = True
             self.state = GEN_ROBOT_PUSH_TRAJ
             return [0, 0, 0, 0]
@@ -394,7 +214,6 @@ class ControlStateMachine:
         path2 = [car2_relative_start, car2_relative_end]
         self.car1_pushing_controller = self._initialize_pushing_controller(path1)
         self.car2_pushing_controller = self._initialize_pushing_controller(path2)
-        # pdb.set_trace()
         self.state = EXECUTE_PUSHING
         return [0, 0, 0, 0]
 

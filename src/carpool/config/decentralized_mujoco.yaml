@@ -65,7 +65,7 @@ FORCE_LB: 0.0
 PUSHER_LENGTH: 0.21
 STATIC_FRICTION_COEFF_MU: 0.6
 #block_edge: 0.2
-dt: 0.05
+dt: 0.1
 render_mode: human
 show_animation: False
 lambda_: 0.01
