@@ -1,3 +1,5 @@
+import random
+
 import gymnasium as gym
 from mushr_mujoco_gym.envs.multi_robot_custom_block_obstacles import MultiAgentMushrBlockEnv
 from ..utils.angle_utils import pose_euler2quat, pose_quat2euler
@@ -7,11 +9,12 @@ import pdb
 PI_BY_2 = 1.57079632679
 
 class PushingAmongObstaclesEnv():
-    def __init__(self, env_name, test_case=1, render_mode='human'):
+    def __init__(self, env_name, test_case=1, render_mode='human', sweep=False):
         self.test_case = test_case
         self.load_map_file()
         self.env = gym.make(env_name, render_mode=render_mode, xml_file=self.map_file)
         self.env.reset()
+        self.sweep = sweep
         self.object_goal_pose = None
         self.load_map_data()
 
@@ -27,6 +30,7 @@ class PushingAmongObstaclesEnv():
             raise ValueError("No <worldbody> found in XML file.")
         obstacles = []
         walls = []
+        obj = []
         for elem in world_body.iter("geom"):
             if elem.attrib.get("type") == "box":
                 pos = np.array([float(x) for x in elem.attrib.get("pos", "0 0 0").split()])
@@ -38,7 +42,8 @@ class PushingAmongObstaclesEnv():
                     obstacles.append((pos, size))
                 else:
                     self.object_shape = 2*size.copy()[0:2]
-
+                    obj.append((pos, size))
+        self.obj = np.array(obj)
         assert len(walls) == 4
 
         self.obstacles = [{'pos': p.tolist(), 'size': s.tolist()} for p, s in obstacles]
@@ -99,13 +104,14 @@ class PushingAmongObstaclesEnv():
         elif self.test_case == 3:
             car1_start = [-1.1, -1.6, PI_BY_2]
             car2_start = [-0.7, -1.6, PI_BY_2]
-            block_start = [-0.8, -1.3, PI_BY_2]
-            block_goal = [0.8, 1.6, PI_BY_2]
+            block_start = [-0.8, -1.2, PI_BY_2]
+            block_goal = [0.8, 1.2, PI_BY_2]
         elif self.test_case == 4:
-            car1_start = [0.6, -1.6, PI_BY_2]
-            car2_start = [1.0, -1.6, PI_BY_2]
-            block_start = [0.8, -1.3, PI_BY_2]
-            block_goal = [-1.2, 0.8, PI_BY_2*2]
+            car1_start = [0.77, -1.6, PI_BY_2]
+            car2_start = [1.19, -1.6, PI_BY_2]
+            block_start = [0.8, -1.32, PI_BY_2]
+            block_goal = [-1.3, 0.8, PI_BY_2*2]
+            # block_goal = [0.8, 1.3, PI_BY_2]
         elif self.test_case == 5:
             car1_start = [1.3, 1.5, -PI_BY_2]
             car2_start = [-1.3, -1.5, PI_BY_2]
@@ -117,15 +123,15 @@ class PushingAmongObstaclesEnv():
             block_start = [0.0, -0.8, -2*PI_BY_2/3]
             block_goal = [-0.5, -0.8, -PI_BY_2]
         elif self.test_case == 7:
-            car1_start = [-0.5, -1.4, PI_BY_2]
-            car2_start = [0.5, -1.4, PI_BY_2]
-            block_start = [-0.5, 1.0, 0]
-            block_goal = [-1.0, 1.0, 0]
+            car1_start = [0.8, -1.6, PI_BY_2]
+            car2_start = [1.25, -1.6, PI_BY_2]
+            block_start = [0.8, -1.3, PI_BY_2]
+            block_goal = [0.8, 1.5, PI_BY_2]
         elif self.test_case == 8:
-            car1_start = [0.2, -1.5, PI_BY_2]
-            car2_start = [-0.2, -1.5, PI_BY_2]
-            block_start = [0.5, 0.5, PI_BY_2 / 4]
-            block_goal = [-1.0, 0.6, PI_BY_2]
+            car1_start = [0.76, -1.6, PI_BY_2]
+            car2_start = [1.18, -1.6, PI_BY_2]
+            block_start = [0.8, -1.32, PI_BY_2]
+            block_goal = [-0.8, 1.0, PI_BY_2 * 1.5]
         else:
             print("Warning: Case not recognized, defaulting to 1")
             car1_start = [-0.5, -1.8, PI_BY_2]
@@ -136,6 +142,16 @@ class PushingAmongObstaclesEnv():
 
     def set_init_states(self):
         car1_start, car2_start, block_start, block_goal = self.load_start_goal_poses()
+
+        if self.sweep:
+            errors = np.random.normal(0.0, 0.008, 6)
+            block_start[0] = block_start[0] + errors[0]
+            block_start[1] = block_start[1] + errors[1]
+            block_start[2] = block_start[2] + errors[2]
+            block_goal[0] = block_goal[0] + errors[3]
+            block_goal[1] = block_goal[1] + errors[4]
+            block_goal[2] = block_goal[2] + errors[5]
+            # pdb.set_trace()
         self.object_goal_pose = block_goal
         init_state = np.concatenate((pose_euler2quat(car1_start),
                                         pose_euler2quat(car2_start), 

@@ -42,7 +42,7 @@ def _tf_to_pose(tf):
     return np.array([float(x), float(y), float(th)], dtype=float)
 
 class ControlStateMachine:
-    def __init__(self, sim_env, goal, obs, at_pushing_pose=True, pathconfig=None):
+    def __init__(self, sim_env, goal, obs, r1, r2, at_pushing_pose=True, pathconfig=None):
         self.goal = goal
         self.state = 1 # PLAN OBJECT MOTION
         self.obs = obs
@@ -55,7 +55,7 @@ class ControlStateMachine:
         self.pose_history_1=[]
         self.pose_history_2=[]
         self.optimizer = LoadOptimization(sim_env.object_shape)
-        self.object_planner = HybridAStar(sim_env.map_size, sim_env.obstacles, sim_env.object_shape, 0.9, 0.0, 0.05, 0.1) # test case 2
+        self.object_planner = HybridAStar(sim_env.map_size, sim_env.obstacles, sim_env.object_shape, r1, r2, 0.05, 0.1) # test case 2
         # self.object_planner = HybridAStar(sim_env.map_size, sim_env.obstacles, sim_env.object_shape, 0.8, 0.5, 0.01, 0.05)
         # self.object_planner = HybridAStar(sim_env.map_size, sim_env.obstacles, sim_env.object_shape, 1.0, 0.0, 0.05, 0.1) # test case 1
         # self.object_planner = HybridAStar(sim_env.map_size, sim_env.obstacles, sim_env.object_shape, 0.7, 0.0, 0.05, 0.1) # test case 3
@@ -76,14 +76,14 @@ class ControlStateMachine:
         self.car1_pose = pose_quat2euler(self.obs[0:6])
         self.car2_pose = pose_quat2euler(self.obs[6:12])
         self.block_pose = pose_quat2euler(self.obs[12:18])
+        return self.car1_pose, self.car2_pose, self.block_pose
 
     def _plan_object_motion(self):
         self.path_all_arcs = self.object_planner.hybrid_a_star_planner(self.block_pose, self.goal)
-        print("object path found", self.path_all_arcs)
+        self.object_plan = self.path_all_arcs.copy()
+        print("object path found")
         if self.path_all_arcs is not None:
             self.state = OPTIMIZE_PUSHING_POSES
-        if self.at_pushing_pose and self.path_all_arcs is not None:
-            self.state = GEN_ROBOT_PUSH_TRAJ
             self.current_arc = self.path_all_arcs.pop(0)
         return [0, 0, 0, 0]
 
@@ -103,8 +103,8 @@ class ControlStateMachine:
         path1 = np.array(path1)
         path2 = np.array(path2)
 
-        print(f"Car1 path: {len(path1)} waypoints")
-        print(f"Car2 path: {len(path2)} waypoints")
+        # print(f"Car1 path: {len(path1)} waypoints")
+        # print(f"Car2 path: {len(path2)} waypoints")
 
         self.state = EXECUTE_RELOCATION
 
@@ -122,23 +122,16 @@ class ControlStateMachine:
             angle_threshold=0.12
         )
         self.car2_tracking_controller.set_path(path2)
-
+        print("relocation planning completed")
         return [0, 0, 0, 0]
 
     def _execute_relocation_of_cars(self):
-        # print(
-        #     f"Executing relocation - Car1 at waypoint {self.car1_tracking_controller.get_current_waypoint_index()}/{len(self.car1_tracking_controller.path)}, "
-        #     f"Car2 at waypoint {self.car2_tracking_controller.get_current_waypoint_index()}/{len(self.car2_tracking_controller.path)}")
-
         if self.at_pushing_pose:
             self.state = GEN_ROBOT_PUSH_TRAJ
             return [0, 0, 0, 0]
 
         action1 = self.car1_tracking_controller.command(self.car1_pose)
         action2 = self.car2_tracking_controller.command(self.car2_pose)
-
-        print(f"Car1 action: steering={action1[0]:.3f}, velocity={action1[1]:.3f}")
-        print(f"Car2 action: steering={action2[0]:.3f}, velocity={action2[1]:.3f}")
 
         # Reasonable goal tolerances
         if (self.car1_tracking_controller.is_goal_reached(self.car1_pose, pos_tol=0.2, angle_tol=0.1)
@@ -152,11 +145,12 @@ class ControlStateMachine:
         return np.concatenate((action1, action2))
 
     def _optimize_pushing_poses(self):
-        self.current_arc = self.path_all_arcs.pop(0)
-        self.car1_next_push_pose, self.car2_next_push_pose = self.optimizer.optimal_poses_for_arc(self.current_arc, self.block_pose, self.car1_pose, self.car2_pose)
-        self.state = PLAN_CAR_RELOCATION
         if self.at_pushing_pose:
             self.state = GEN_ROBOT_PUSH_TRAJ
+            return [0, 0, 0, 0]
+        self.car1_next_push_pose, self.car2_next_push_pose = self.optimizer.optimal_poses_for_arc(self.current_arc, self.block_pose, self.car1_pose, self.car2_pose)
+        print("optimized pushing poses", self.car1_next_push_pose, self.car2_next_push_pose)
+        self.state = PLAN_CAR_RELOCATION
         return [0, 0, 0, 0]
 
     def _global_frame_to_object_frame(self, pose, object_pose):
@@ -182,7 +176,7 @@ class ControlStateMachine:
 
     def _gen_push_traj_of_cars(self):
         print("Generating push trajectory...")
-        pdb.set_trace()
+        # pdb.set_trace()
         start_x, start_y, start_theta, end_x, end_y, end_theta, k = self.current_arc
 
         # Generate dense waypoints along the object's arc
@@ -191,9 +185,6 @@ class ControlStateMachine:
             end_x, end_y, end_theta, k,
             num_points=30  # Dense waypoints for smooth pushing
         )
-
-        print(f"Generated {len(object_waypoints)} object waypoints")
-
         # Calculate current relative poses of cars to object
         car1_relative_pose = self._global_frame_to_object_frame(self.car1_pose, self.block_pose)
         car2_relative_pose = self._global_frame_to_object_frame(self.car2_pose, self.block_pose)
@@ -213,21 +204,18 @@ class ControlStateMachine:
         car1_path = np.array(car1_path)
         car2_path = np.array(car2_path)
 
-        print(f"Car1 pushing path: {len(car1_path)} waypoints")
-        print(f"Car2 pushing path: {len(car2_path)} waypoints")
-
         # Create MPC controllers for pushing (slower speed)
         self.car1_pushing_controller = MPCPathTracker(
             target_speed=0.35,  # Slower for pushing
-            position_threshold=0.20,
-            angle_threshold=0.15
+            position_threshold=0.15,
+            angle_threshold=0.1
         )
         self.car1_pushing_controller.set_path(car1_path)
 
         self.car2_pushing_controller = MPCPathTracker(
             target_speed=0.35,
-            position_threshold=0.20,
-            angle_threshold=0.15
+            position_threshold=0.15,
+            angle_threshold=0.1
         )
         self.car2_pushing_controller.set_path(car2_path)
 
@@ -236,18 +224,6 @@ class ControlStateMachine:
 
     def _generate_arc_waypoints(self, start_x, start_y, start_theta,
                                 end_x, end_y, end_theta, k, num_points=30):
-        """
-        Generate dense waypoints along an arc.
-
-        Args:
-            start_x, start_y, start_theta: Start pose
-            end_x, end_y, end_theta: End pose
-            k: Curvature (0 for straight line, + for left turn, - for right turn)
-            num_points: Number of waypoints to generate
-
-        Returns:
-            List of [x, y, theta] waypoints
-        """
         waypoints = []
 
         # Check if it's a straight line or pure rotation
@@ -259,7 +235,7 @@ class ControlStateMachine:
                 t = i / num_points
                 theta = start_theta + t * (end_theta - start_theta)
                 # Add small circular motion to help car-like robot
-                radius = 0.05  # Very small radius
+                radius = 0.001  # Very small radius
                 x = start_x + radius * (np.sin(theta) - np.sin(start_theta))
                 y = start_y - radius * (np.cos(theta) - np.cos(start_theta))
                 waypoints.append([x, y, theta])
@@ -314,13 +290,9 @@ class ControlStateMachine:
         return waypoints
 
     def _execute_pushing(self):
-        print(
-            f"Executing pushing - Car1 at waypoint {self.car1_pushing_controller.get_current_waypoint_index()}/{len(self.car1_pushing_controller.cx)}, "
-            f"Car2 at waypoint {self.car2_pushing_controller.get_current_waypoint_index()}/{len(self.car2_pushing_controller.cx)}")
-
         # Check if object reached goal
         if np.hypot(self.block_pose[0] - self.goal[0],
-                    self.block_pose[1] - self.goal[1]) < 0.15 and \
+                    self.block_pose[1] - self.goal[1]) < 0.1 and \
                 np.abs(self.block_pose[2] - self.goal[2]) < 0.05:
             self.state = REACHED_GOAL
             print("Object reached goal!")
@@ -342,22 +314,18 @@ class ControlStateMachine:
         #         print("Switching to next arc")
         #         return [0, 0, 0, 0]
 
-        if ((self.car1_pushing_controller.is_goal_reached(self.car1_pose, pos_tol=0.2, angle_tol=0.1) and
-                self.car2_pushing_controller.is_goal_reached(self.car2_pose, pos_tol=0.2, angle_tol=0.1)) or
+        if ((self.car1_pushing_controller.is_goal_reached(self.car1_pose, pos_tol=0.2, angle_tol=0.15) and
+                self.car2_pushing_controller.is_goal_reached(self.car2_pose, pos_tol=0.2, angle_tol=0.15)) or
             ((self.car1_pushing_controller.get_current_waypoint_index() == len(self.car1_pushing_controller.cx) - 1) and
              (self.car2_pushing_controller.get_current_waypoint_index() == len(self.car2_pushing_controller.cx) - 1))):
-            print("Current arc complete, deciding next action...")
+            # print("Current arc complete, deciding next action...")
             if len(self.path_all_arcs) == 0:
                 self.state = REACHED_GOAL
                 print("All arcs complete - Reached Goal!")
                 return [0, 0, 0, 0]
-            elif len(self.path_all_arcs) > 0:
-                self.state = GEN_ROBOT_PUSH_TRAJ
+            else:
                 self.current_arc = self.path_all_arcs.pop(0)
-
-                # for example 6:
-                # self.state = OPTIMIZE_PUSHING_POSES
-                # self.at_pushing_pose = False
+                self.state = OPTIMIZE_PUSHING_POSES
                 print("Switching to next arc")
                 return [0, 0, 0, 0]
 
@@ -372,12 +340,8 @@ class ControlStateMachine:
         # If one car is ahead, slow it down
         if idx1 > idx2 + 2:  # Car1 is ahead
             action1[1] *= 0.5  # Slow down car1
-            print("Car1 ahead, slowing down")
+            # print("Car1 ahead, slowing down")
         elif idx2 > idx1 + 2:  # Car2 is ahead
             action2[1] *= 0.5  # Slow down car2
-            print("Car2 ahead, slowing down")
-
-        print(f"Car1 action: steering={action1[0]:.3f}, velocity={action1[1]:.3f}")
-        print(f"Car2 action: steering={action2[0]:.3f}, velocity={action2[1]:.3f}")
-
+            # print("Car2 ahead, slowing down")
         return np.concatenate((action1, action2))

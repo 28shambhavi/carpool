@@ -87,13 +87,13 @@ class HybridAStar:
                  # TODO: This is for the first four cases
                  # w_gear=0.5 * 100000,  # switching fwd<->rev
                  # w_switch=0.5 * 100000,  # switching curvature sign (+ ↔ -)
-                 w_turn_in_place=0.5 * 100000,
-                 w_strafe=0.5 * 100000,
+                 # w_turn_in_place=0.5 * 100000,
+                 # w_strafe=0.5 * 100000,
                  # TODO: This is for case 5 and 6
                   w_gear=1,  # switching fwd<->rev
                   w_switch=1,  # switching curvature sign (+ ↔ -)
-                 #  w_turn_in_place=1,
-                 #  w_strafe =1,
+                  w_turn_in_place=1,
+                  w_strafe =1,
                  yaw_heuristic_scale=0.8,  # add heading term into heuristic (keeps admissible)
 
                  ):
@@ -484,9 +484,9 @@ class HybridAStar:
                 for (sx, sy, syaw, ex, ey, eyaw, k) in smooth_internal:
                     out.append((sx - map_max_x / 2.0, sy - map_max_y / 2.0, syaw,
                                 ex - map_max_x / 2.0, ey - map_max_y / 2.0, eyaw, k))
-                print(out)
-                plot_map(self.obstacles, (length, width), start, goal, out)
-                plt.show()
+                # print(out)
+                # plot_map(self.obstacles, (length, width), start, goal, out)
+                # plt.show()
                 return out
 
             for nb in expand(node):

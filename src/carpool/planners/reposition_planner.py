@@ -353,18 +353,18 @@ class RepositioningPlanner:
             print(path0)
             print(path1)
             # Visualize if enabled and paths exist
-            if self.enable_viz and path0 is not None and path1 is not None:
-                title = viz_title if viz_title else "CL-CBS Path Planning"
-                visualize_paths(
-                    map_size=self.map_size,
-                    object_size=self.object_size,
-                    block_pose=block_pose,
-                    poses=poses,
-                    path0=path0,
-                    path1=path1,
-                    obstacles=self.obstacles,
-                    title=title
-                )
+            # if self.enable_viz and path0 is not None and path1 is not None:
+            #     title = viz_title if viz_title else "CL-CBS Path Planning"
+            #     visualize_paths(
+            #         map_size=self.map_size,
+            #         object_size=self.object_size,
+            #         block_pose=block_pose,
+            #         poses=poses,
+            #         path0=path0,
+            #         path1=path1,
+            #         obstacles=self.obstacles,
+            #         title=title
+            #     )
 
             return path0, path1
 
