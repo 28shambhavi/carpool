@@ -104,13 +104,18 @@ class PushingAmongObstaclesEnv():
         elif self.test_case == 3:
             car1_start = [-1.1, -1.6, PI_BY_2]
             car2_start = [-0.7, -1.6, PI_BY_2]
-            block_start = [-0.8, -1.2, PI_BY_2]
-            block_goal = [0.8, 1.2, PI_BY_2]
+            block_start = [-0.8, -0.8, PI_BY_2]
+            block_goal = [0.8, 1.8, PI_BY_2]
         elif self.test_case == 4:
-            car1_start = [0.77, -1.6, PI_BY_2]
-            car2_start = [1.19, -1.6, PI_BY_2]
-            block_start = [0.8, -1.32, PI_BY_2]
-            block_goal = [-1.3, 0.8, PI_BY_2*2]
+            # steep curve
+            # car1_start = [0.77, -1.6, PI_BY_2]
+            # car2_start = [1.19, -1.6, PI_BY_2]
+            # block_start = [0.8, -1.32, PI_BY_2]
+            # block_goal = [-1.3, 0.8, PI_BY_2*2]
+            car1_start = [0.8, -1.6, PI_BY_2]
+            car2_start = [0.8, -1.0, -PI_BY_2]
+            block_start = [0.8, -1.3, PI_BY_2]
+            block_goal = [-1.3, 0.8, PI_BY_2 * 2]
             # block_goal = [0.8, 1.3, PI_BY_2]
         elif self.test_case == 5:
             car1_start = [1.3, 1.5, -PI_BY_2]
@@ -123,14 +128,24 @@ class PushingAmongObstaclesEnv():
             block_start = [0.0, -0.8, -2*PI_BY_2/3]
             block_goal = [-0.5, -0.8, -PI_BY_2]
         elif self.test_case == 7:
-            car1_start = [0.8, -1.6, PI_BY_2]
-            car2_start = [1.25, -1.6, PI_BY_2]
-            block_start = [0.8, -1.3, PI_BY_2]
-            block_goal = [0.8, 1.5, PI_BY_2]
+            # straight line
+            car1_start = [0.0, -1.5, PI_BY_2]
+            car2_start = [0.4, -1.5, PI_BY_2]
+            block_start = [0.2, -1.2, PI_BY_2]
+            block_goal = [0.2, 1.5, PI_BY_2]
+            # car1_start = [0.2, -1.5, PI_BY_2]
+            # car2_start = [0.2, -0.9, -PI_BY_2]
+            # block_start = [0.2, -1.2, PI_BY_2]
+            # block_goal = [0.2, 1.5, PI_BY_2]
         elif self.test_case == 8:
-            car1_start = [0.76, -1.6, PI_BY_2]
-            car2_start = [1.18, -1.6, PI_BY_2]
-            block_start = [0.8, -1.32, PI_BY_2]
+            # small curve
+            # car1_start = [0.76, -1.6, PI_BY_2]
+            # car2_start = [1.18, -1.6, PI_BY_2]
+            # block_start = [0.8, -1.32, PI_BY_2]
+            # block_goal = [-0.8, 1.0, PI_BY_2 * 1.5]
+            car1_start = [0.8, -1.5, PI_BY_2]
+            car2_start = [0.8, -0.95, -PI_BY_2]
+            block_start = [0.8, -1.2, PI_BY_2]
             block_goal = [-0.8, 1.0, PI_BY_2 * 1.5]
         else:
             print("Warning: Case not recognized, defaulting to 1")

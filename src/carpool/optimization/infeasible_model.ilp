@@ -1,0 +1,42 @@
+\ Model Ackermann_Quasi_Static_Pushing_copy
+\ LP format - for model browsing. Use MPS format to capture full model detail.
+\ Signature: 0x4e61d2901e056445
+Minimize
+ 
+Subject To
+ p1_secondary_side: - 0.6 s1_side + p1_secondary = -0.3
+ p2_secondary_side: - 0.6 s2_side + p2_secondary = -0.3
+ parallel_headings: d1_direction - d2_direction = 0
+ heading_towards_object_1: s1_side - d1_direction = 0
+ heading_towards_object_2: s2_side - d2_direction = 0
+ n1_unit_def: - 2 s1_side + n1_unit = -1
+ n2_unit_def: - 2 s2_side + n2_unit = -1
+ F_total_def: - f1_x - f2_x + F_total = 0
+ G_total_def: - f1_y - f2_y + G_total = 0
+ normal_cone_vx: 0.0577283945999012 F_total = 0
+ normal_cone_vy: 0.0577283945999012 G_total - 0.7 lambda_scale = 0
+ normal_cone_omega: 0.0529618299081663 M_total - 0.6 lambda_scale = 0
+ lambda1_N_proj: lambda1_N + [ - f1_y * n1_unit ] = 0
+ lambda2_N_proj: lambda2_N + [ - f2_y * n2_unit ] = 0
+ M_total_def: M_total + [ - p1_primary * f1_y - p2_primary * f2_y
+   + p1_secondary * f1_x + p2_secondary * f2_x ] = 0
+ limit_surface: [ 0.0288641972999506 F_total ^2
+   + 0.0288641972999506 G_total ^2 + 0.0264809149540831 M_total ^2 ] = 1
+Bounds
+ -infinity <= p1_primary <= 0.9
+ -infinity <= p2_primary <= 0.9
+ p1_secondary free
+ p2_secondary free
+ f1_x free
+ f1_y free
+ f2_x free
+ f2_y free
+ n1_unit free
+ n2_unit free
+ F_total free
+ G_total free
+ M_total free
+ lambda_scale free
+Binaries
+ s1_side s2_side d1_direction d2_direction
+End

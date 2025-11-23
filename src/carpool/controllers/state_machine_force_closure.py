@@ -1,10 +1,10 @@
 import pdb
-from ..optimization.load_optimizer_two_agents import LoadOptimization
 from ..utils.angle_utils import pose_quat2euler, wrap, global_frame_to_object_frame, object_frame_to_global_frame, check_pose_error
 from ..utils.distance_3d import distance_car_to_object
+from ..optimization.load_optimizer_two_agents import LoadOptimization
 from ..planners.reposition_planner import RepositioningPlanner
 from ..planners.object_high_level_planner import HybridAStar
-from ..controllers.path_tracking_controller import PathTracking
+from ..controllers.path_tracking_pure_pursuit import MPCPathTracker
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import RigidTransform as Tf
 import numpy as np
@@ -25,179 +25,6 @@ GOAL_DIS = 0.1
 CONTACT_DIS = 0.2
 CONTACT_YAW = 0.2
 
-
-class SimplePathFollower:
-    def __init__(self, lookahead_distance=0.25, position_threshold=0.1,
-                 angle_threshold=0.15, max_steering=0.29, max_velocity=0.15,
-                 direction_threshold=np.pi/2):
-        """
-        Args:
-            lookahead_distance: Distance ahead to look for target point
-            position_threshold: Distance threshold to consider waypoint reached
-            angle_threshold: Angle threshold to consider goal orientation reached
-            max_steering: Maximum steering angle (rad)
-            max_velocity: Maximum forward velocity (m/s)
-            direction_threshold: Angle threshold to switch between forward/reverse
-        """
-        self.lookahead_distance = lookahead_distance
-        self.position_threshold = position_threshold
-        self.angle_threshold = angle_threshold
-        self.max_steering = max_steering
-        self.max_velocity = max_velocity
-        self.direction_threshold = direction_threshold
-
-        self.path = None
-        self.current_waypoint_idx = 0
-        self.goal_reached = False
-
-    def set_path(self, waypoints):
-        """
-        Set the path to follow.
-
-        Args:
-            waypoints: List or array of poses [(x, y, theta), ...]
-        """
-        self.path = np.array(waypoints)
-        self.current_waypoint_idx = 0
-        self.goal_reached = False
-
-    def get_current_waypoint_index(self):
-        """Return current waypoint index"""
-        return self.current_waypoint_idx
-
-    def _wrap_angle(self, angle):
-        """Wrap angle to [-pi, pi]"""
-        return (angle + np.pi) % (2 * np.pi) - np.pi
-
-    def _find_lookahead_point(self, current_pose):
-        """Find the point on path at lookahead distance"""
-        current_pos = current_pose[:2]
-
-        # Start from current waypoint
-        for i in range(self.current_waypoint_idx, len(self.path)):
-            waypoint_pos = self.path[i, :2]
-            distance = np.linalg.norm(waypoint_pos - current_pos)
-
-            if distance >= self.lookahead_distance:
-                return self.path[i], i
-
-        # If no point found at lookahead distance, return last point
-        return self.path[-1], len(self.path) - 1
-
-    def _update_waypoint(self, current_pose):
-        """Update current waypoint if close enough to it"""
-        if self.current_waypoint_idx >= len(self.path):
-            return
-
-        target = self.path[self.current_waypoint_idx]
-        distance = np.linalg.norm(current_pose[:2] - target[:2])
-
-        if distance < self.position_threshold:
-            self.current_waypoint_idx += 1
-
-    def _should_reverse(self, current_pose, target_point):
-        """
-        Determine if robot should move in reverse to reach target.
-
-        Returns:
-            bool: True if should reverse, False if forward
-        """
-        # Calculate angle to target
-        dx = target_point[0] - current_pose[0]
-        dy = target_point[1] - current_pose[1]
-        angle_to_target = np.arctan2(dy, dx)
-
-        # Calculate angular difference between robot heading and target direction
-        angle_diff = abs(self._wrap_angle(angle_to_target - current_pose[2]))
-
-        # If angle difference > 90 degrees, it's better to reverse
-        return angle_diff > self.direction_threshold
-
-    def is_goal_reached(self, current_pose, pos_tol=None, angle_tol=None):
-        """
-        Check if final goal is reached.
-
-        Args:
-            current_pose: Current pose (x, y, theta)
-            pos_tol: Position tolerance (uses default if None)
-            angle_tol: Angle tolerance (uses default if None)
-        """
-        if self.path is None or len(self.path) == 0:
-            return True
-
-        pos_tol = pos_tol if pos_tol is not None else self.position_threshold
-        angle_tol = angle_tol if angle_tol is not None else self.angle_threshold
-
-        goal = self.path[-1]
-        pos_error = np.linalg.norm(current_pose[:2] - goal[:2])
-        angle_error = abs(self._wrap_angle(current_pose[2] - goal[2]))
-        print("pos error", pos_error, "angle error", angle_error)
-        return pos_error < pos_tol and angle_error < angle_tol
-
-    def command(self, current_pose):
-        """
-        Compute control commands to follow the path.
-
-        Args:
-            current_pose: Current pose (x, y, theta)
-
-        Returns:
-            action: [steering_angle, velocity] (velocity is negative for reverse)
-        """
-        if self.path is None or len(self.path) == 0:
-            return np.array([0.0, 0.0])
-
-        # Check if goal reached
-        if self.is_goal_reached(current_pose):
-            self.goal_reached = True
-            return np.array([0.0, 0.0])
-
-        # Update current waypoint
-        self._update_waypoint(current_pose)
-
-        # Get lookahead point
-        target_point, _ = self._find_lookahead_point(current_pose)
-
-        # Determine if we should reverse
-        reverse = self._should_reverse(current_pose, target_point)
-
-        # Calculate steering angle
-        dx = target_point[0] - current_pose[0]
-        dy = target_point[1] - current_pose[1]
-
-        # Transform target to robot frame
-        cos_theta = np.cos(current_pose[2])
-        sin_theta = np.sin(current_pose[2])
-
-        local_x = cos_theta * dx + sin_theta * dy
-        local_y = -sin_theta * dx + cos_theta * dy
-
-        if reverse:
-            # When reversing, flip the x coordinate (like looking backwards)
-            local_x = -local_x
-
-        # Pure pursuit steering
-        ld_squared = local_x**2 + local_y**2
-        ld = np.sqrt(ld_squared)
-
-        if ld < 1e-6:
-            steering = 0.0
-        else:
-            steering = np.arctan2(2.0 * local_y, ld)
-
-        # Clip steering
-        steering = np.clip(steering, -self.max_steering, self.max_steering)
-
-        # Calculate velocity (slow down for large steering angles)
-        velocity = self.max_velocity * (1.0 - 0.5 * abs(steering) / self.max_steering)
-        velocity = max(velocity, 0.2)  # Minimum velocity
-
-        # Negate velocity if reversing
-        if reverse:
-            velocity = -velocity
-
-        return np.array([steering, velocity])
-
 def _wrap(a):
     return (a + np.pi) % (2 * np.pi) - np.pi
 
@@ -215,21 +42,21 @@ def _tf_to_pose(tf):
     return np.array([float(x), float(y), float(th)], dtype=float)
 
 class ControlStateMachine:
-    def __init__(self, sim_env, goal, obs, pathconfig=None):
+    def __init__(self, sim_env, goal, obs, r1, r2, at_pushing_pose=True, pathconfig=None):
         self.goal = goal
         self.state = 1 # PLAN OBJECT MOTION
         self.obs = obs
         self.car1_pose = pose_quat2euler(self.obs[0:6])
         self.car2_pose = pose_quat2euler(self.obs[6:12])
         self.block_pose = pose_quat2euler(self.obs[12:18])
-        self.at_pushing_pose = False
+        self.at_pushing_pose = at_pushing_pose
         self.env = sim_env.env
         self.current_arc = None
         self.pose_history_1=[]
         self.pose_history_2=[]
         self.optimizer = LoadOptimization(sim_env.object_shape)
-        # self.object_planner = HybridAStar(sim_env.map_size, sim_env.obstacles, sim_env.object_shape, 0.8, 0.0, 0.05, 0.1) # test case 2
-        self.object_planner = HybridAStar(sim_env.map_size, sim_env.obstacles, sim_env.object_shape, 0.8, 0.0, 0.01, 0.05)
+        self.object_planner = HybridAStar(sim_env.map_size, sim_env.obstacles, sim_env.object_shape, r1, r2, 0.05, 0.1) # test case 2
+        # self.object_planner = HybridAStar(sim_env.map_size, sim_env.obstacles, sim_env.object_shape, 0.8, 0.5, 0.01, 0.05)
         # self.object_planner = HybridAStar(sim_env.map_size, sim_env.obstacles, sim_env.object_shape, 1.0, 0.0, 0.05, 0.1) # test case 1
         # self.object_planner = HybridAStar(sim_env.map_size, sim_env.obstacles, sim_env.object_shape, 0.7, 0.0, 0.05, 0.1) # test case 3
         # self.object_planner = HybridAStar(sim_env.map_size, sim_env.obstacles, sim_env.object_shape, 0.9, 0.0, 0.05, 0.1) # test case 4
@@ -249,145 +76,80 @@ class ControlStateMachine:
         self.car1_pose = pose_quat2euler(self.obs[0:6])
         self.car2_pose = pose_quat2euler(self.obs[6:12])
         self.block_pose = pose_quat2euler(self.obs[12:18])
+        return self.car1_pose, self.car2_pose, self.block_pose
 
     def _plan_object_motion(self):
         self.path_all_arcs = self.object_planner.hybrid_a_star_planner(self.block_pose, self.goal)
-        print("object path found", self.path_all_arcs)
+        self.object_plan = self.path_all_arcs.copy()
+        print("object path found")
         if self.path_all_arcs is not None:
             self.state = OPTIMIZE_PUSHING_POSES
-        if self.at_pushing_pose and self.path_all_arcs is not None:
-            self.state = GEN_ROBOT_PUSH_TRAJ
             self.current_arc = self.path_all_arcs.pop(0)
         return [0, 0, 0, 0]
-
-    def _initialize_path_tracking_controller(self, path):
-        cfg = {'noise_mu': np.array([0.0, 0.2]),
-               'noise_sigma': np.array([[0.3, 0.0], [0.0, 0.27]]),
-               'n_samples': 200,
-               'predict_horizon': 40,
-               'action_low': np.array([-0.29, -0.15]),
-               'action_high': np.array([0.29, 0.30]),
-               'waypoint_lookahead': 0.3,
-               'waypoint_reached_threshold': 0.1,
-               'direction_change_threshold': 0.3,
-               'target_spacing': 0.1}
-
-        controller = PathTracking(
-            cfg['noise_mu'],
-            cfg['noise_sigma'],
-            cfg['n_samples'],
-            cfg['predict_horizon'],
-            cfg['action_low'],
-            cfg['action_high']
-        )
-        controller.set_trajectory(np.array(path), cfg.get('target_spacing', 0.05))
-        # cfg = {
-        #     'noise_mu': np.array([0.0, 0.15]),
-        #     'noise_sigma': np.array([[0.3, 0.0], [0.0, 0.4]]),
-        #     'n_samples': 200,
-        #     'predict_horizon': 30,
-        #     'action_low': np.array([-0.29, 0.0]),
-        #     'action_high': np.array([0.29, 0.30]),
-        #     'target_spacing': 0.05,
-        #     'default_velocity': 0.2  # ADD THIS
-        # }
-        # controller.cost.lookahead_distance = 0.2
-        # controller.reached_threshold = 0.06
-        # controller.direction_change_threshold = 0.1
-        return controller
-
-    def _initialize_pushing_controller(self, path):
-        """Initialize controller with stored config parameters"""
-        cfg = {'noise_mu': np.array([0.0, 0.15]),
-            'noise_sigma': np.array([[0.3, 0.0], [0.0, 0.27]]),
-            'n_samples': 200,
-            'predict_horizon': 40,
-            'action_low': np.array([-0.29, 0.0]),
-            'action_high': np.array([0.29, 0.30]),
-            'waypoint_lookahead': 0.35,
-            'waypoint_reached_threshold': 0.15,
-            'direction_change_threshold': 0.25,
-            'target_spacing': 0.1}
-
-        controller = PathTracking(
-            cfg['noise_mu'],
-            cfg['noise_sigma'],
-            cfg['n_samples'],
-            cfg['predict_horizon'],
-            cfg['action_low'],
-            cfg['action_high']
-        )
-        # controller.set_trajectory(np.array(path), cfg.get('target_spacing', 0.05))
-        controller.cost.waypoint_lookahead = cfg['waypoint_lookahead']
-        controller.cost.waypoint_reached_threshold = cfg['waypoint_reached_threshold']
-        controller.cost.direction_change_threshold = cfg['direction_change_threshold']
-        return controller
 
     def _rounded_pose(self, pose):
         return (round(pose[0], 3), round(pose[1], 3), round(pose[2], 3))
 
-    # def _rounded_pose_away(self, pose):
-    #     if pose[1] < 0:
-    #         return (round(pose[0], 3), round(pose[1]-0.05, 3), round(pose[2], 3))
-    #     else:
-    #         return (round(pose[0], 3), round(pose[1]+0.05, 3), round(pose[2], 3))
-
     def _plan_relocation_of_cars(self):
+        poses = [
+            self._rounded_pose(self.car1_pose),
+            self._rounded_pose(self.car2_pose),
+            self._rounded_pose(self.car1_next_push_pose),
+            self._rounded_pose(self.car2_next_push_pose)
+        ]
 
-        poses = [self._rounded_pose(self.car1_pose), self._rounded_pose(self.car2_pose), self._rounded_pose(self.car1_next_push_pose), self._rounded_pose(self.car2_next_push_pose)]
-        # poses = [self._rounded_pose(self.car1_pose), self._rounded_pose(self.car2_pose),
-        #          self._rounded_pose_away(self.car1_next_push_pose), self._rounded_pose_away(self.car2_next_push_pose)]
-        # if ((np.sum(np.array(poses[0])-np.array(poses[2]))<0.15 and
-        #      np.sum(np.array(poses[1])-np.array(poses[3])) < 0.1) or
-        #         (np.sum(np.array(poses[0])-np.array(poses[3])) <0.15 and
-        #         np.sum(np.array(poses[1])-np.array(poses[2])) < 0.1)):
-        #     print("already at pushing pose")
-        #     self.state = GEN_ROBOT_PUSH_TRAJ
-        #     return [0, 0, 0, 0]
         path1, path2 = self.reposition_planner.solve_cl_cbs_from_mujoco(poses, self.block_pose)
-        # print("path1", path1)
-        # print("path2", path2)
+
+        path1 = np.array(path1)
+        path2 = np.array(path2)
+
+        # print(f"Car1 path: {len(path1)} waypoints")
+        # print(f"Car2 path: {len(path2)} waypoints")
+
         self.state = EXECUTE_RELOCATION
-        self.car1_tracking_controller = self._initialize_path_tracking_controller(path1)
-        self.car2_tracking_controller = self._initialize_path_tracking_controller(path2)
-        # self.car1_tracking_controller = SimplePathFollower(
-        #     lookahead_distance=0.4,
-        #     position_threshold=0.1,
-        #     max_velocity=0.25
-        # )
-        # self.car1_tracking_controller.set_path(path1)
-        # self.car2_tracking_controller = SimplePathFollower(
-        #     lookahead_distance=0.4,
-        #     position_threshold=0.1,
-        #     max_velocity=0.25
-        # )
-        # self.car2_tracking_controller.set_path(path2)
+
+        # Create MPC controllers
+        self.car1_tracking_controller = MPCPathTracker(
+            target_speed=0.32,
+            position_threshold=0.15,
+            angle_threshold=0.12
+        )
+        self.car1_tracking_controller.set_path(path1)
+
+        self.car2_tracking_controller = MPCPathTracker(
+            target_speed=0.32,
+            position_threshold=0.15,
+            angle_threshold=0.12
+        )
+        self.car2_tracking_controller.set_path(path2)
+        print("relocation planning completed")
         return [0, 0, 0, 0]
 
     def _execute_relocation_of_cars(self):
-        print("executing relocation of cars")
         if self.at_pushing_pose:
             self.state = GEN_ROBOT_PUSH_TRAJ
             return [0, 0, 0, 0]
 
-        action1 = self.car1_tracking_controller.ctrl.command(self.car1_pose)
-        action2 = self.car2_tracking_controller.ctrl.command(self.car2_pose)
+        action1 = self.car1_tracking_controller.command(self.car1_pose)
+        action2 = self.car2_tracking_controller.command(self.car2_pose)
 
-        # idx1 = self.car1_tracking_controller.get_reference_index(self.car1_pose)
-        # idx2 = self.car2_tracking_controller.get_reference_index(self.car2_pose)
-        # print("index1", idx1, "index2", idx2)
-        if self.car1_tracking_controller.is_goal_reached(self.car1_pose, 0.14, 0.18) and self.car2_tracking_controller.is_goal_reached(self.car2_pose, 0.14, 0.18):
+        # Reasonable goal tolerances
+        if (self.car1_tracking_controller.is_goal_reached(self.car1_pose, pos_tol=0.2, angle_tol=0.1)
+                and self.car2_tracking_controller.is_goal_reached(self.car2_pose, pos_tol=0.2, angle_tol=0.1)):
             self.at_pushing_pose = True
             self.state = GEN_ROBOT_PUSH_TRAJ
+            print("Both cars reached pushing pose!")
             return [0, 0, 0, 0]
-
         self.pose_history_1.append(self.car1_pose)
         self.pose_history_2.append(self.car2_pose)
         return np.concatenate((action1, action2))
 
     def _optimize_pushing_poses(self):
-        self.current_arc = self.path_all_arcs.pop(0)
+        if self.at_pushing_pose:
+            self.state = GEN_ROBOT_PUSH_TRAJ
+            return [0, 0, 0, 0]
         self.car1_next_push_pose, self.car2_next_push_pose = self.optimizer.optimal_poses_for_arc(self.current_arc, self.block_pose, self.car1_pose, self.car2_pose)
+        print("optimized pushing poses", self.car1_next_push_pose, self.car2_next_push_pose)
         self.state = PLAN_CAR_RELOCATION
         return [0, 0, 0, 0]
 
@@ -414,58 +176,176 @@ class ControlStateMachine:
 
     def _gen_push_traj_of_cars(self):
         print("Generating push trajectory...")
+        # pdb.set_trace()
         start_x, start_y, start_theta, end_x, end_y, end_theta, k = self.current_arc
-        block_start = [start_x, start_y, start_theta]
-        block_end = [end_x, end_y, end_theta]
+
+        # Generate dense waypoints along the object's arc
+        object_waypoints = self._generate_arc_waypoints(
+            start_x, start_y, start_theta,
+            end_x, end_y, end_theta, k,
+            num_points=30  # Dense waypoints for smooth pushing
+        )
+        # Calculate current relative poses of cars to object
         car1_relative_pose = self._global_frame_to_object_frame(self.car1_pose, self.block_pose)
         car2_relative_pose = self._global_frame_to_object_frame(self.car2_pose, self.block_pose)
-        car1_relative_start = self._object_frame_to_global_frame(car1_relative_pose, block_start)
-        car2_relative_start = self._object_frame_to_global_frame(car2_relative_pose, block_start)
-        car1_relative_end = self._object_frame_to_global_frame(car1_relative_pose, block_end)
-        car2_relative_end = self._object_frame_to_global_frame(car2_relative_pose, block_end)
-        path1 = [car1_relative_start, car1_relative_end]
-        path2 = [car2_relative_start, car2_relative_end]
-        self.car1_pushing_controller = self._initialize_pushing_controller(path1)
-        self.car2_pushing_controller = self._initialize_pushing_controller(path2)
-        # pdb.set_trace()
+        # print("car 1 relative pose", car1_relative_pose)
+        # print("car 2 relative pose", car2_relative_pose)
+        # Generate car paths by maintaining relative pose to object along entire arc
+        car1_path = []
+        car2_path = []
+        car2_relative_pose[1] = car2_relative_pose[1]+0.2965*0.33
+        self.object_waypoints = object_waypoints
+        for obj_waypoint in object_waypoints:
+            # Transform car poses to global frame at each object waypoint
+            car1_global = self._object_frame_to_global_frame(car1_relative_pose, obj_waypoint)
+            car2_global = self._object_frame_to_global_frame(car2_relative_pose, obj_waypoint)
+            car1_path.append(car1_global)
+            car2_path.append(car2_global)
+
+        car1_path = np.array(car1_path)
+        car2_path = np.array(car2_path)
+        # print("car 1 path", car1_path)
+        # print("car 2 path", car2_path)
+        # Create MPC controllers for pushing (slower speed)
+        self.car1_pushing_controller = MPCPathTracker(
+            target_speed=0.35,  # Slower for pushing
+            position_threshold=0.1,
+            angle_threshold=0.05
+        )
+        self.car1_pushing_controller.set_path(car1_path)
+
+        self.car2_pushing_controller = MPCPathTracker(
+            target_speed=0.35,
+            position_threshold=0.1,
+            angle_threshold=0.35
+        )
+        self.car2_pushing_controller.set_path(car2_path)
         self.state = EXECUTE_PUSHING
+
+        # modify controller to follow path more strongly
+        self.car1_pushing_controller.Q = np.diag([1.0, 1.0, 0.01, 0.01])
+        self.car2_pushing_controller.Q = np.diag([1.0, 1.0, 0.01, 0.01])
         return [0, 0, 0, 0]
 
+    def _generate_arc_waypoints(self, start_x, start_y, start_theta,
+                                end_x, end_y, end_theta, k, num_points=30):
+        waypoints = []
+
+        # Check if it's a straight line or pure rotation
+        distance = np.hypot(end_x - start_x, end_y - start_y)
+
+        if distance < 0.01:
+            # Pure rotation in place - interpolate heading only
+            for i in range(num_points + 1):
+                t = i / num_points
+                theta = start_theta + t * (end_theta - start_theta)
+                # Add small circular motion to help car-like robot
+                radius = 0.001  # Very small radius
+                x = start_x + radius * (np.sin(theta) - np.sin(start_theta))
+                y = start_y - radius * (np.cos(theta) - np.cos(start_theta))
+                waypoints.append([x, y, theta])
+        elif abs(k) < 1e-6:
+            # Straight line
+            for i in range(num_points + 1):
+                t = i / num_points
+                x = start_x + t * (end_x - start_x)
+                y = start_y + t * (end_y - start_y)
+                theta = start_theta + t * (end_theta - start_theta)
+                waypoints.append([x, y, theta])
+        else:
+            # Circular arc
+            radius = abs(1.0 / k)
+
+            # Arc center
+            cx = start_x - np.sin(start_theta) / k
+            cy = start_y + np.cos(start_theta) / k
+
+            # Start and end angles relative to arc center
+            start_angle = np.arctan2(start_y - cy, start_x - cx)
+            end_angle = np.arctan2(end_y - cy, end_x - cx)
+
+            # Compute angular span
+            angle_span = end_angle - start_angle
+            if k > 0:  # Left turn
+                if angle_span < 0:
+                    angle_span += 2 * np.pi
+            else:  # Right turn
+                if angle_span > 0:
+                    angle_span -= 2 * np.pi
+
+            for i in range(num_points + 1):
+                t = i / num_points
+                angle = start_angle + t * angle_span
+
+                # Position on arc
+                x = cx + radius * np.cos(angle)
+                y = cy + radius * np.sin(angle)
+
+                # Heading is tangent to arc
+                if k > 0:
+                    theta = angle + np.pi / 2
+                else:
+                    theta = angle - np.pi / 2
+
+                # Wrap to [-pi, pi]
+                theta = (theta + np.pi) % (2 * np.pi) - np.pi
+
+                waypoints.append([x, y, theta])
+
+        return waypoints
+
     def _execute_pushing(self):
-        self.car1_pushing_controller.cost.object_pose = self.block_pose
-        self.car1_pushing_controller.cost.object_pose = self.block_pose
-        # if self.car1_pushing_controller.is_goal_reached(self.car1_pose, 0.3, 0.25) and self.car2_pushing_controller.is_goal_reached(self.car2_pose, 0.3, 0.25): # test case 4
-        # if self.car1_pushing_controller.is_goal_reached(self.car1_pose, 0.25, 0.25) and self.car2_pushing_controller.is_goal_reached(self.car2_pose, 0.25, 0.25): # test case 3
-        # if self.car1_pushing_controller.is_goal_reached(self.car1_pose, 0.05, 0.25) and self.car2_pushing_controller.is_goal_reached(self.car2_pose, 0.05, 0.25): # test case 1
-        if self.car1_pushing_controller.is_goal_reached(self.car1_pose, 0.15, 0.25) and self.car2_pushing_controller.is_goal_reached(self.car2_pose, 0.15, 0.25): # test case 2
-        # if np.hypot(self.block_pose[0]-self.goal[0],self.block_pose[1]-self.goal[1]) < 0.15 and np.abs(self.block_pose[2]-self.goal[2]) < 0.05:
+        # Check if object reached goal
+        if np.hypot(self.block_pose[0] - self.goal[0],
+                    self.block_pose[1] - self.goal[1]) < 0.1 and \
+                np.abs(self.block_pose[2] - self.goal[2]) < 0.05:
             self.state = REACHED_GOAL
-            print("Block reached goal")
+            print("Object reached goal!")
             return [0, 0, 0, 0]
-        if self.car1_pushing_controller.is_goal_reached(self.car1_pose, 0.1, 0.15) and self.car2_pushing_controller.is_goal_reached(self.car2_pose, 0.1, 0.15): # test case 5
-            print("reaching last car pose, deciding next")
+
+        # Check if current arc is complete
+        # if ((self.car1_pushing_controller.is_goal_reached(self.car1_pose, pos_tol=0.2, angle_tol=0.15) and
+        #         self.car2_pushing_controller.is_goal_reached(self.car2_pose, pos_tol=0.2, angle_tol=0.15)) or
+        #     ((self.car1_pushing_controller.get_current_waypoint_index() == len(self.car1_pushing_controller.cx) - 1) and
+        #      (self.car2_pushing_controller.get_current_waypoint_index() == len(self.car2_pushing_controller.cx) - 1))):
+        #     print("Current arc complete, deciding next action...")
+        #     if len(self.path_all_arcs) == 0:
+        #         self.state = REACHED_GOAL
+        #         print("All arcs complete - Reached Goal!")
+        #         return [0, 0, 0, 0]
+        #     elif len(self.path_all_arcs) > 0:
+        #         self.at_pushing_pose = False
+        #         self.state = OPTIMIZE_PUSHING_POSES
+        #         print("Switching to next arc")
+        #         return [0, 0, 0, 0]
+
+        if ((self.car1_pushing_controller.is_goal_reached(self.car1_pose, pos_tol=0.2, angle_tol=0.15) and
+                self.car2_pushing_controller.is_goal_reached(self.car2_pose, pos_tol=0.2, angle_tol=0.15)) or
+            ((self.car1_pushing_controller.get_current_waypoint_index() == len(self.car1_pushing_controller.cx) - 1) and
+             (self.car2_pushing_controller.get_current_waypoint_index() == len(self.car2_pushing_controller.cx) - 1))):
+            # print("Current arc complete, deciding next action...")
             if len(self.path_all_arcs) == 0:
                 self.state = REACHED_GOAL
-                print("Reached Goal")
-                return [0, 0, 0, 0]
-            elif len(self.path_all_arcs) > 0 and self.at_pushing_pose:
-                self.state = GEN_ROBOT_PUSH_TRAJ
-                self.current_arc = self.path_all_arcs.pop(0)
-                print("Switching to next arc")
+                print("All arcs complete - Reached Goal!")
                 return [0, 0, 0, 0]
             else:
+                self.current_arc = self.path_all_arcs.pop(0)
                 self.state = OPTIMIZE_PUSHING_POSES
+                print("Switching to next arc")
                 return [0, 0, 0, 0]
-        else:
-            idx1 = self.car1_pushing_controller.get_reference_index(self.car1_pose)
-            idx2 = self.car2_pushing_controller.get_reference_index(self.car2_pose)
-            self.common_index = min(idx1, idx2)
-            self.car1_pushing_controller.index = self.common_index
-            self.car2_pushing_controller.index = self.common_index
-            action1 = self.car1_pushing_controller.ctrl.command(self.car1_pose)
-            action2 = self.car2_pushing_controller.ctrl.command(self.car2_pose)
-            if idx1 > self.common_index:
-                action1 = [action1[0], action1[1] * 0.5]
-            if idx2 > self.common_index:
-                action2 = [action2[0], action2[1] * 0.5]
-            return np.concatenate((action1, action2))
+
+        # Execute coordinated pushing
+        action1 = self.car1_pushing_controller.command(self.car1_pose)
+        action2 = self.car2_pushing_controller.command(self.car2_pose)
+
+        # Coordination: slower car leads to keep robots synchronized
+        idx1 = self.car1_pushing_controller.get_current_waypoint_index()
+        idx2 = self.car2_pushing_controller.get_current_waypoint_index()
+
+        # if idx1 > idx2:  # Car1 is ahead
+        #     action1[1] *= 0  # Slow down car1
+        #     print("slowing car 1")
+        if idx2 >= idx1:  # Car2 is ahead
+            action2[1] *= 0  # Slow down car2
+            # print("slowing car 2")
+        return np.concatenate((action1, action2))

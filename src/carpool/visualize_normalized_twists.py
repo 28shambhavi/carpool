@@ -27,22 +27,31 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 (needed for 3D projection)
 
 
-def transform_to_body_frame(df, theta_col='theta'):
+def transform_to_body_frame(df, theta_col='theta', use_constant_theta=False, constant_theta_value=0.0):
     """Transform global frame twists to body frame.
 
     Args:
         df: DataFrame with columns ['vx', 'vy', 'omega'] in global frame
         theta_col: column name containing heading angle (radians)
+        use_constant_theta: if True, use constant_theta_value for all transformations
+        constant_theta_value: the fixed theta to use when use_constant_theta=True
 
     Returns:
         DataFrame with body frame twists ['vx', 'vy', 'omega']
     """
-    if theta_col not in df.columns:
+    if not use_constant_theta and theta_col not in df.columns:
         raise KeyError(f"Orientation column '{theta_col}' not found for body frame transform. "
-                      f"Available columns: {list(df.columns)}")
+                       f"Available columns: {list(df.columns)}")
 
     df_body = df.copy()
-    theta = df[theta_col].values
+
+    if use_constant_theta:
+        # Use constant theta for all twists (to see body frame twist space)
+        theta = np.full(len(df), constant_theta_value)
+        print(f"Transforming all twists to body frame using constant θ = {constant_theta_value:.3f} rad")
+    else:
+        theta = df[theta_col].values
+
     vx = df['vx'].values
     vy = df['vy'].values
 
@@ -80,7 +89,7 @@ def reconstruct_heading_from_omega(df, omega_col='omega', theta_initial=0.0):
 
 def read_twists_from_csv(filename, vx_col='vx', vy_col='vy', omega_col='omega',
                          frame='global', theta_col='theta',
-                         reconstruct_theta=False):
+                         reconstruct_theta=False, use_constant_theta=True):
     """Return list of [vx, vy, omega] from a CSV file and the original DataFrame.
 
     Uses pandas for convenience and robustness (handles headers, missing values, etc.).
@@ -112,7 +121,6 @@ def read_twists_from_csv(filename, vx_col='vx', vy_col='vy', omega_col='omega',
                                f"Use --reconstruct_theta to integrate omega.")
         else:
             cols_needed.append(theta_col)
-
     df_sub = df[cols_needed].dropna().copy()
 
     # Rename columns for consistency
@@ -127,8 +135,8 @@ def read_twists_from_csv(filename, vx_col='vx', vy_col='vy', omega_col='omega',
 
     # Transform to body frame if requested
     if frame == 'body':
-        df_sub = transform_to_body_frame(df_sub, theta_col='theta')
-        df_sub = df_sub[['vx', 'vy', 'omega']]  # drop theta after transformation
+        df_sub = transform_to_body_frame(df_sub, theta_col='theta', use_constant_theta=use_constant_theta)
+        df_sub = df_sub[['vx', 'vy', 'omega']]
 
     return df_sub.values.tolist(), df_sub
 def set_equal_aspect_3d(ax, xs, ys, zs):
@@ -331,9 +339,9 @@ def plot_sphere_with_holes(list_of_twists, df=None, color_by=None,
     surf = ax.plot_surface(x_sphere, y_sphere, z_sphere,
                            facecolors=facecolors,
                            rstride=1, cstride=1,
-                           linewidth=0,
+                           linewidth=0.5,
                            antialiased=True,
-                           shade=False)
+                           shade=True)
 
     # Optionally overlay the actual data points (small dots)
     arr = np.array(list_of_twists)
@@ -397,7 +405,8 @@ def main():
                    help='sphere mesh resolution (default: 100, higher = smoother but slower)')
     p.add_argument('--save', default=None,
                    help='optional filename to save the figure (PNG). If --plot both, "_3d" and "_2d" will be appended.')
-
+    p.add_argument('--use_varying_theta', action='store_true',
+                   help='use individual theta values for body frame transform (default: use constant theta=0)')
     args = p.parse_args()
     filename = Path(args.file)
     if not filename.exists():

@@ -81,19 +81,19 @@ class HybridAStar:
                  obstacles, rectangular_object, R_min=None, R_max=None, resolution=None, step_size=None,
                  obstacles_frame=None,  # None -> auto-detect, "user" or "internal"
                  w_len=0.5,  # path length weight
-                 w_kappa=0.4,  # |curvature| weight   (per meter)
-                 w_kappa2=0.4,  # curvature^2 weight   (per meter)
-                 w_dk=0.5,  # |Δcurvature| penalty per step
+                 w_kappa=0.125,  # |curvature| weight   (per meter)
+                 w_kappa2=0.125,  # curvature^2 weight   (per meter)
+                 w_dk=2.0,  # |Δcurvature| penalty per step
                  # TODO: This is for the first four cases
-                 # w_gear=0.5 * 100000,  # switching fwd<->rev
-                 # w_switch=0.5 * 100000,  # switching curvature sign (+ ↔ -)
-                 # w_turn_in_place=0.5 * 100000,
-                 # w_strafe=0.5 * 100000,
+                 w_gear=0.5 * 100000,  # switching fwd<->rev
+                 w_switch=0.5 * 100000,  # switching curvature sign (+ ↔ -)
+                 w_turn_in_place=0.5 * 100000,
+                 w_strafe=0.5 * 100000,
                  # TODO: This is for case 5 and 6
-                  w_gear=1,  # switching fwd<->rev
-                  w_switch=1,  # switching curvature sign (+ ↔ -)
-                  w_turn_in_place=1,
-                  w_strafe =1,
+                 #  w_gear=1,  # switching fwd<->rev
+                 #  w_switch=1,  # switching curvature sign (+ ↔ -)
+                 #  w_turn_in_place=1,
+                 #  w_strafe =1,
                  yaw_heuristic_scale=0.8,  # add heading term into heuristic (keeps admissible)
 
                  ):
@@ -175,7 +175,7 @@ class HybridAStar:
         return False
 
     # ---- Post-processing: compress consecutive segments of the same curvature ----
-    def _compress_arcs(self, raw_arcs, yaw_wrap=True, k_tol=1e-5):
+    def _compress_arcs(self, raw_arcs, yaw_wrap=True, k_tol=1e-1):
         if not raw_arcs:
             return []
         merged = []
@@ -216,11 +216,9 @@ class HybridAStar:
             self._fill_rect(grid, ocx + shift_x, ocy + shift_y, sx, sy,
                             resolution, map_min_x, map_min_y)
 
-        # User -> internal poses
         start_i = (start[0] + map_max_x / 2.0, start[1] + map_max_y / 2.0, start[2])
         goal_i = (goal[0] + map_max_x / 2.0, goal[1] + map_max_y / 2.0, goal[2])
 
-        # Quick goal cell check
         goal_ix = int((goal_i[0] - map_min_x) / resolution)
         goal_iy = int((goal_i[1] - map_min_y) / resolution)
         if not (0 <= goal_ix < nx and 0 <= goal_iy < ny) or grid[goal_iy, goal_ix] == 1:
@@ -265,8 +263,7 @@ class HybridAStar:
         k1_lvls = np.linspace(0.0, k_min, num=10)
         k_lvls = np.unique(k1_lvls)
         if k_max is not None:
-            # Config 2 should go from k_max down to k_min (not to zero!)
-            k2_lvls = np.linspace(k_max, k_min, num=10)  # [5.0, ..., 1.0]
+            k2_lvls = np.linspace(k_max, k_min, num=10)
             k_lvls = np.unique(np.concatenate((k1_lvls, k2_lvls)))
 
         primitives = []
@@ -281,22 +278,19 @@ class HybridAStar:
                 primitives.append((-1, -k))  # backward right
 
         # Add turn-in-place primitives (R=0, k=∞)
-        turn_angle_per_step = yaw_res  # ≈ 5.6 degrees, matches angular grid
+        turn_angle_per_step = yaw_res
         primitives.append(('turn_left', turn_angle_per_step))
         primitives.append(('turn_right', turn_angle_per_step))
         primitives.append(('strafe_left', step_size))
         primitives.append(('strafe_right', step_size))
 
-        # FIXED: Adaptive sampling based on curvature
         def get_n_samples(k, motion_type='arc'):
             """Return number of samples based on curvature and motion type"""
             if motion_type == 'strafe' or motion_type == 'turn':
-                return 8  # Fixed samples for special motions
+                return 8
             if abs(k) < 1e-12:  # straight line
-                return 8  # Still use decent sampling for straight lines
+                return 8
             radius = 1.0 / abs(k)
-            # For tight turns (small radius), use more samples
-            # Ensure at least 10 samples, up to 30 for very tight turns
             n = max(10, min(30, int(15 + 50 / radius)))
             return n
 
@@ -336,7 +330,6 @@ class HybridAStar:
                     nyp = node.y + distance * math.sin(perp_angle)
                     nyaw = node.yaw  # Heading unchanged
 
-                    # FIXED: Use more samples for strafe collision check
                     n_samples = get_n_samples(0.0, motion_type='strafe')
                     coll = False
                     for i in range(1, n_samples + 1):
@@ -363,7 +356,6 @@ class HybridAStar:
                 direction, k = prim
                 yaw0 = node.yaw
 
-                # FIXED: Get adaptive number of samples based on curvature
                 n_samples = get_n_samples(k, motion_type='arc')
 
                 # Straight line motion (k ≈ 0)
@@ -485,8 +477,8 @@ class HybridAStar:
                     out.append((sx - map_max_x / 2.0, sy - map_max_y / 2.0, syaw,
                                 ex - map_max_x / 2.0, ey - map_max_y / 2.0, eyaw, k))
                 # print(out)
-                # plot_map(self.obstacles, (length, width), start, goal, out)
-                # plt.show()
+                plot_map(self.obstacles, (length, width), start, goal, out)
+                plt.show()
                 return out
 
             for nb in expand(node):

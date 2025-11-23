@@ -85,6 +85,14 @@ class ControlStateMachine:
         if self.path_all_arcs is not None:
             self.state = OPTIMIZE_PUSHING_POSES
             self.current_arc = self.path_all_arcs.pop(0)
+            # check if the current arc is just a small displacement
+            start_x, start_y, start_theta, end_x, end_y, end_theta, k = self.current_arc
+            dis = np.hypot(end_x - start_x, end_y - start_y)
+            angle_diff = abs(_wrap(end_theta - start_theta))
+            if dis < 0.2 and angle_diff < np.deg2rad(5):
+                print("Skipping tiny arc, moving to next")
+                if len(self.path_all_arcs) > 0:
+                    self.current_arc = self.path_all_arcs.pop(0)
         return [0, 0, 0, 0]
 
     def _rounded_pose(self, pose):
@@ -151,6 +159,7 @@ class ControlStateMachine:
         self.car1_next_push_pose, self.car2_next_push_pose = self.optimizer.optimal_poses_for_arc(self.current_arc, self.block_pose, self.car1_pose, self.car2_pose)
         print("optimized pushing poses", self.car1_next_push_pose, self.car2_next_push_pose)
         self.state = PLAN_CAR_RELOCATION
+        # pdb.set_trace()
         return [0, 0, 0, 0]
 
     def _global_frame_to_object_frame(self, pose, object_pose):
@@ -207,15 +216,15 @@ class ControlStateMachine:
         # Create MPC controllers for pushing (slower speed)
         self.car1_pushing_controller = MPCPathTracker(
             target_speed=0.35,  # Slower for pushing
-            position_threshold=0.15,
-            angle_threshold=0.1
+            position_threshold=0.1,
+            angle_threshold=0.05
         )
         self.car1_pushing_controller.set_path(car1_path)
 
         self.car2_pushing_controller = MPCPathTracker(
             target_speed=0.35,
-            position_threshold=0.15,
-            angle_threshold=0.1
+            position_threshold=0.1,
+            angle_threshold=0.05
         )
         self.car2_pushing_controller.set_path(car2_path)
 

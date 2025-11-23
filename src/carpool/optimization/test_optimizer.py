@@ -234,20 +234,24 @@ def plot_full_result_v2(result, object_twist, length, breadth,
     return ax
 
 def plot_single_problem():
-    x_length = 0.14
-    y_length = 0.8
+    x_length = 2.0
+    y_length = 0.6
     lo = LoadOptimization(sweep=False, object_shape=(x_length, y_length))
 
-    object_twist= [0.66774, -0.0371, 0.7434]
+    object_twist= [0.0, 0.9, 0.6]
     # object_twist[0.66774278 - 0.03713503
     # 0.74346524]
     # object
     # shape
     # 0.14
     # 0.8
-    res = lo.optimize(object_twist=object_twist, orientation='lateral')
-    for c in res["contacts"]:
-        print(c["name"], "pos =", c["pos"], "normal =", c["normal_force"], "tangent =", c["tangent_force"])
+    try:
+        res = lo.optimize(object_twist=object_twist, orientation='longitudinal')
+    except Exception as e:
+        print("Optimization error:", e)
+        return
+    # for c in res["contacts"]:
+    #     print(c["name"], "pos =", c["pos"], "normal =", c["normal_force"], "tangent =", c["tangent_force"])
 
     if res is None:
         print("No solution returned for the sample problem.")
@@ -259,9 +263,6 @@ def plot_single_problem():
                         displacement_dt=0.5,  # Changed from 0.2
                         displacement_scale=0.5,  # Changed from 0.1
                         displaced_color='gray', displaced_linestyle='--')
-
-# import your optimizer class (adjust import path as needed)
-# from your_module import LoadOptimization
 
 # -----------------------
 def fibonacci_sphere(samples=1):
@@ -309,7 +310,6 @@ def sweep_velocities(num_points=10000, shapes=None, out_dir="sweep_results", ver
 
     # prepare directions (N unit vectors)
     dirs = fibonacci_sphere(num_points)
-
     # initialize optimizer once (sweep mode recommended; but create new inside loop if licensing forces it)
     # We'll create a new LoadOptimization per shape/orientation to keep logs separate and avoid accidental env issues.
     total_runs = len(shapes) * num_points * 2
@@ -318,9 +318,9 @@ def sweep_velocities(num_points=10000, shapes=None, out_dir="sweep_results", ver
     for (L, B) in shapes:
         for orientation in ('longitudinal', 'lateral'):
             # file names (append mode)
-            feasible_file = os.path.join(out_dir, make_filename("feasible", L, B, orientation))
-            infeasible_file = os.path.join(out_dir, make_filename("infeasible", L, B, orientation))
-            error_file = os.path.join(out_dir, make_filename("errors", L, B, orientation))
+            feasible_file = os.path.join(out_dir, make_filename("stick_feasible", L, B, orientation))
+            infeasible_file = os.path.join(out_dir, make_filename("stick_infeasible", L, B, orientation))
+            error_file = os.path.join(out_dir, make_filename("stick_errors", L, B, orientation))
 
             # write header if files don't exist
             if not os.path.exists(feasible_file):
@@ -337,7 +337,7 @@ def sweep_velocities(num_points=10000, shapes=None, out_dir="sweep_results", ver
                     writer.writerow(["vx", "vy", "omega", "error_str", "timestamp"])
 
             # create optimizer instance for this (shape,orientation) sweep
-            opts = LoadOptimization(sweep=True)
+            opts = LoadOptimization((L, B), True)
 
             # inner sweep
             pbar = tqdm(dirs, desc=f"Sweep L={L},B={B},ori={orientation}", disable=not verbose)
@@ -345,8 +345,9 @@ def sweep_velocities(num_points=10000, shapes=None, out_dir="sweep_results", ver
                 object_twist = normalize(v).tolist()  # unit vector [vx,vy,omega]
                 timestamp = datetime.utcnow().isoformat()
                 try:
-                    res = opts.optimize(length=L, breadth=B, object_twist=object_twist, orientation=orientation)
+                    res = opts.optimize(object_twist=object_twist, orientation='longitudinal')
                 except Exception as e:
+                    pdb.set_trace()
                     # log exception to error_file and continue
                     with open(error_file, 'a', newline='') as ef:
                         write_row(ef, object_twist + [str(e), timestamp])
@@ -373,5 +374,5 @@ def sweep_velocities(num_points=10000, shapes=None, out_dir="sweep_results", ver
 if __name__ == "__main__":
     # Example: run the full sweep (10k directions => 20k optimizations per shape set)
     # WARNING: heavy. adjust num_points for quick tests.
-    # sweep_velocities(num_points=20000, shapes=[(1.0, 1.2), (1.0, 1.6), (1.0, 1.0), (0.8, 0.8)], out_dir="sweep_results", verbose=True)
+    # sweep_velocities(num_points=10000, shapes=[(2.0, 0.6), (1.0, 0.6), (2.0, 0.4), (1.0, 1.0)], out_dir="sweep_results", verbose=True)
     plot_single_problem()

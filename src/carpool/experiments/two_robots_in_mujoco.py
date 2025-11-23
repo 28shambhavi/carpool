@@ -11,7 +11,7 @@ from tqdm import tqdm
 REACHED_GOAL = 8
 
 def run_carpool_simulation(test_case, r1, r2, at_pushing_pose=True, path_tracking_config=None):
-    sim_env = PushingAmongObstaclesEnv(config.ENV_NAME, test_case=test_case, render_mode='rgb_array', sweep=True)
+    sim_env = PushingAmongObstaclesEnv(config.ENV_NAME, test_case=test_case, render_mode='human', sweep=False)
     obs = sim_env.set_init_states()
     object_goal_pose = sim_env.object_goal_pose
     rate = Rate(1 / config.dt)
@@ -37,19 +37,19 @@ def run_carpool_simulation(test_case, r1, r2, at_pushing_pose=True, path_trackin
 
 
 if __name__ == "__main__":
-    test_cases = [5]
-    num_runs = 100
+    test_cases = [1]
+    num_runs = 1
 
     # Create directory for results
     for test_case in test_cases:
-        results_dir = f'optimal_test{test_case}'
+        results_dir = f'basic_test{test_case}'
         os.makedirs(results_dir, exist_ok=True)
 
-        for i in tqdm(range(50, num_runs)):
+        for i in tqdm(range(num_runs)):
             print(f"Running simulation {i + 1}/{num_runs}...")
 
             car1_hist, car2_hist, block_hist, orig_path, exec_time, goal = run_carpool_simulation(
-                test_case=test_case, r1=0.95, r2=0.2, at_pushing_pose=False
+                test_case=test_case, r1=0.9, r2=0.2, at_pushing_pose=False
             )
 
             # Save this run immediately
