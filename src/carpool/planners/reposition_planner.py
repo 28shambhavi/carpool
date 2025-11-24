@@ -317,6 +317,39 @@ class RepositioningPlanner:
             obstacles_grid.append([x_g, y_g])
         return obstacles_grid
 
+    def rasterize_object_at_current_pose(self, block_pose, resolution=0.25):
+        """
+        Rasterize the object at its current pose to create obstacle points.
+
+        Args:
+            block_pose: (x, y, theta) current pose of the object in MuJoCo coords
+            resolution: Grid resolution for rasterization (default 0.25m)
+
+        Returns:
+            List of [x, y] obstacle points in MuJoCo coordinates
+        """
+        x_obj, y_obj, theta_obj = block_pose[0], block_pose[1], block_pose[2]
+        half_width, half_height = self.object_size[0] / 2, self.object_size[1] / 2
+
+        # Generate grid points in object's local frame
+        local_xs = np.arange(-half_width, half_width, resolution)
+        local_ys = np.arange(-half_height, half_height, resolution)
+
+        # Rotation matrix
+        cos_theta = np.cos(theta_obj)
+        sin_theta = np.sin(theta_obj)
+
+        object_obstacles = []
+        # Transform each point to global frame
+        for local_x in local_xs:
+            for local_y in local_ys:
+                # Apply rotation and translation
+                global_x = cos_theta * local_x - sin_theta * local_y + x_obj
+                global_y = sin_theta * local_x + cos_theta * local_y + y_obj
+                object_obstacles.append([global_x, global_y])
+
+        return object_obstacles
+
     def solve_cl_cbs_from_mujoco(self, poses, block_pose, viz_title=None, save_path=None):
         def _as_pose_list(poses3):
             return [[p[0], p[1], p[2]] for p in poses3]
@@ -327,8 +360,15 @@ class RepositioningPlanner:
         # Convert pre-rasterized obstacles from MuJoCo to grid coordinates
         obstacles_xy = self.convert_obstacles_to_grid()
 
-        print(f"Converted {len(obstacles_xy)} obstacle points to grid coordinates")
-        print(f"Map size: {self.W}m x {self.H}m = {map_size_cells[0]} x {map_size_cells[1]} grid cells")
+        # ADD OBJECT AS OBSTACLE AT CURRENT POSE
+        object_obstacles_mujoco = self.rasterize_object_at_current_pose(block_pose)
+        print(f"Rasterized object at pose ({block_pose[0]:.2f}, {block_pose[1]:.2f}, {block_pose[2]:.2f}): "
+              f"{len(object_obstacles_mujoco)} obstacle points")
+
+        # Convert object obstacles to grid coordinates and add to obstacles
+        for obj_point in object_obstacles_mujoco:
+            x_g, y_g = self._mu_to_grid_xy(obj_point[0], obj_point[1])
+            obstacles_xy.append([x_g, y_g])
 
         # Convert agent start/goal poses to grid
         start1_g, start2_g, goal1_g, goal2_g = self.mujoco_to_grid_world(poses)
@@ -353,19 +393,19 @@ class RepositioningPlanner:
             print(path0)
             print(path1)
             # Visualize if enabled and paths exist
-            if self.enable_viz and path0 is not None and path1 is not None:
-                title = viz_title if viz_title else "CL-CBS Path Planning"
-                visualize_paths(
-                    map_size=self.map_size,
-                    object_size=self.object_size,
-                    block_pose=block_pose,
-                    poses=poses,
-                    path0=path0,
-                    path1=path1,
-                    obstacles=self.obstacles,
-                    title=title
-                )
-
+            # if self.enable_viz and path0 is not None and path1 is not None:
+            #     title = viz_title if viz_title else "CL-CBS Path Planning"
+            #     visualize_paths(
+            #         map_size=self.map_size,
+            #         object_size=self.object_size,
+            #         block_pose=block_pose,
+            #         poses=poses,
+            #         path0=path0,
+            #         path1=path1,
+            #         obstacles=self.obstacles,
+            #         title=title
+            #     )
+            #
             return path0, path1
 
         except Exception as e:

@@ -300,8 +300,8 @@ def create_visualizations(data1, data2, output_dir='plots'):
 
 
 def main():
-    basic_dir = '/Users/shambhavisingh/rob/PVnRT/src/CL-CBS/build/force_closure_test8'  # or whatever you named it
-    optimal_dir = '/Users/shambhavisingh/rob/PVnRT/src/CL-CBS/build/optimal_test8'  # or whatever you named it
+    basic_dir = '/Users/shambhavisingh/rob/PVnRT/src/CL-CBS/build/optimal_correct_test9'  # or whatever you named it
+    optimal_dir = '/Users/shambhavisingh/rob/PVnRT/src/CL-CBS/build/optimal_correct_test9'  # or whatever you named it
 
     # Load data for both methods
     print("=" * 80)
@@ -371,8 +371,8 @@ def main():
     print("Results saved to: statistical_comparison_results_test_4.xlsx")
 
     # Create visualizations
-    print("\nCreating visualizations...")
-    create_visualizations(basic_data, optimal_data)
+    # print("\nCreating visualizations...")
+    # create_visualizations(basic_data, optimal_data)
 
     print("✓ Complete!")
 

@@ -60,26 +60,27 @@ class PushingAmongObstaclesEnv():
                 for y in ys:
                     rasterized.append([x, y])
 
-        car1_start, car2_start, block_start, block_goal = self.load_start_goal_poses()
+        # car1_start, car2_start, block_start, block_goal = self.load_start_goal_poses()
+
         # rasterize new object with new twist
-        x_obj, y_obj, theta_obj = block_start[0], block_start[1], block_start[2]
-        half_width, half_height = self.object_shape[0] / 2, self.object_shape[1] / 2
-
-        # Generate grid points in object's local frame
-        local_xs = np.arange(-half_width, half_width, resolution)
-        local_ys = np.arange(-half_height, half_height, resolution)
-
-        # Rotation matrix
-        cos_theta = np.cos(theta_obj)
-        sin_theta = np.sin(theta_obj)
-
-        # Transform each point to global frame
-        for local_x in local_xs:
-            for local_y in local_ys:
-                # Apply rotation and translation
-                global_x = cos_theta * local_x - sin_theta * local_y + x_obj
-                global_y = sin_theta * local_x + cos_theta * local_y + y_obj
-                rasterized.append([global_x, global_y])
+        # x_obj, y_obj, theta_obj = block_start[0], block_start[1], block_start[2]
+        # half_width, half_height = self.object_shape[0] / 2, self.object_shape[1] / 2
+        #
+        # # Generate grid points in object's local frame
+        # local_xs = np.arange(-half_width, half_width, resolution)
+        # local_ys = np.arange(-half_height, half_height, resolution)
+        #
+        # # Rotation matrix
+        # cos_theta = np.cos(theta_obj)
+        # sin_theta = np.sin(theta_obj)
+        #
+        # # Transform each point to global frame
+        # for local_x in local_xs:
+        #     for local_y in local_ys:
+        #         # Apply rotation and translation
+        #         global_x = cos_theta * local_x - sin_theta * local_y + x_obj
+        #         global_y = sin_theta * local_x + cos_theta * local_y + y_obj
+        #         rasterized.append([global_x, global_y])
         self.obstacles_for_cbs = rasterized
         self.map_size = (3.0, 4.0)
         # if walls:
@@ -102,10 +103,10 @@ class PushingAmongObstaclesEnv():
             block_start = [0.2, -1.2, PI_BY_2]
             block_goal = [0.2, 1.5, PI_BY_2]
         elif self.test_case == 3:
-            car1_start = [-1.1, -1.6, PI_BY_2]
-            car2_start = [-0.7, -1.6, PI_BY_2]
-            block_start = [-0.8, -0.8, PI_BY_2]
-            block_goal = [0.8, 1.8, PI_BY_2]
+            car1_start = [-1.3, -1.7, PI_BY_2]
+            car2_start = [-0.8, -1.7, PI_BY_2]
+            block_start = [-0.8, -1.0, PI_BY_2]
+            block_goal = [0.8, 1.0, PI_BY_2]
         elif self.test_case == 4:
             # steep curve
             # car1_start = [0.77, -1.6, PI_BY_2]
@@ -118,10 +119,10 @@ class PushingAmongObstaclesEnv():
             block_goal = [-1.3, 0.8, PI_BY_2 * 2]
             # block_goal = [0.8, 1.3, PI_BY_2]
         elif self.test_case == 5:
-            car1_start = [1.3, 1.5, -PI_BY_2]
-            car2_start = [-1.3, -1.5, PI_BY_2]
-            block_start = [0.0, 0.0, 2*PI_BY_2/3]
-            block_goal = [0.0, 0.0, 0]
+            car1_start = [0.9, -1.7, PI_BY_2]
+            car2_start = [0.5, -1.7, PI_BY_2]
+            block_start = [0.4, -0.4, PI_BY_2+PI_BY_2/2]
+            block_goal = [-0.2, 1.5, PI_BY_2]
         elif self.test_case == 6:
             car1_start = [0.2, -1.6, PI_BY_2]
             car2_start = [0.7, -1.6, PI_BY_2]
@@ -147,6 +148,15 @@ class PushingAmongObstaclesEnv():
             car2_start = [0.8, -0.95, -PI_BY_2]
             block_start = [0.8, -1.2, PI_BY_2]
             block_goal = [-0.8, 1.0, PI_BY_2 * 1.5]
+        elif self.test_case == 9:
+            # car1_start = [0.9, -1.7, PI_BY_2]
+            # car2_start = [0.5, -1.7, PI_BY_2]
+            # block_start = [0.4, -0.4, PI_BY_2 + PI_BY_2 / 2]
+            # block_goal = [-0.2, 1.5, PI_BY_2]
+            car1_start = [-1.0, -1.7, PI_BY_2]
+            car2_start = [1.0, -1.7, PI_BY_2]
+            block_start = [0.0, 0.1, PI_BY_2]
+            block_goal = [0.0, 1.5, PI_BY_2]
         else:
             print("Warning: Case not recognized, defaulting to 1")
             car1_start = [-0.5, -1.8, PI_BY_2]
@@ -159,7 +169,7 @@ class PushingAmongObstaclesEnv():
         car1_start, car2_start, block_start, block_goal = self.load_start_goal_poses()
 
         if self.sweep:
-            errors = np.random.normal(0.0, 0.008, 6)
+            errors = np.random.normal(0.0, 0.005, 6)
             block_start[0] = block_start[0] + errors[0]
             block_start[1] = block_start[1] + errors[1]
             block_start[2] = block_start[2] + errors[2]

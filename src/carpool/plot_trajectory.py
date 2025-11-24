@@ -165,7 +165,7 @@ def plot_average_trajectory(results_dir, output_dir='trajectory_plots'):
     fig, ax = plt.subplots()
 
     # Determine sampling rate
-    sample_rate = max(1, len(avg_block) // 40)
+    sample_rate = max(1, len(avg_block) // 20)
 
     # Plot desired path
     # ax.plot(desired_path[:, 0], desired_path[:, 1], 'g--', linewidth=2.5,
@@ -182,12 +182,12 @@ def plot_average_trajectory(results_dir, output_dir='trajectory_plots'):
         x, y, theta = avg_block[i]
         plot_rectangle(ax, x, y, theta+np.pi/2, color='#5b1963',
                        label='Object (Avg)' if i == 0 else None,
-                       width=0.8, height=0.2, alpha=0.9, fill=False)
+                       width=2.0, height=0.6, alpha=0.9, fill=False)
 
     # Final block position
     x, y, theta = avg_block[-1]
-    plot_rectangle(ax, x, y, theta+np.pi/2, color='#5b1963',
-                   label='Object Final', width=0.8, height=0.2, alpha=0.9, fill=True)
+    plot_rectangle(ax, x, y+0.1, theta+np.pi/2, color='#5b1963',
+                   label='Object Final', width=2.0, height=0.6, alpha=0.9, fill=True)
 
     # Plot car trajectories
     if has_car1:
@@ -213,19 +213,21 @@ def plot_average_trajectory(results_dir, output_dir='trajectory_plots'):
                        label='Car 2 Final', width=0.2965, height=0.16, alpha=0.3, fill=True)
 
     # Plot start and goal
+    #block_start = [-0.8, -1.0, PI_BY_2]
+            #block_goal = [0.8, 1.0, PI_BY_2]
     # ax.plot(desired_path[0, 0], desired_path[0, 1], 'go', markersize=8,
     #         label='Start', markeredgecolor='black', markeredgewidth=2)
     # ax.plot(desired_path[-1, 0], desired_path[-1, 1], 'r*', markersize=12,
     #         label='Goal', markeredgecolor='black', markeredgewidth=1)
-    plot_rectangle(ax, 0.0, -0.2, 0, color='green',
-                   label='Start', width=0.8, height=0.2, alpha=0.3, fill=True)
+    plot_rectangle(ax, 0.0, 0.1, 0, color='green',
+                   label='Start', width=2.0, height=0.6, alpha=0.3, fill=True)
     plot_rectangle(ax, 0.0, 1.0, 0, color='green',
-                   label='Goal', width=0.8, height=0.2, alpha=0.3, fill=True)
+                   label='Goal', width=2.0, height=0.6, alpha=0.3, fill=True)
     # obstacles
-    plot_rectangle(ax, -1.0, 0.5, 0, color='black',
-                   label='Start', width=0.6, height=0.6, alpha=0.3, fill=True)
-    plot_rectangle(ax, 1.0, 0.5, 0, color='black',
-                   label='Goal', width=0.6, height=0.6, alpha=0.3, fill=True)
+    plot_rectangle(ax, 0.0, -0.8, 0, color='black',
+                   label='obs1', width=1.1, height=1.1, alpha=0.3, fill=True)
+    # plot_rectangle(ax, 0.8, -1.2, 0, color='black',
+    #                label='obs2', width=0.6, height=0.6, alpha=0.3, fill=True)
     # Calculate average errors
     final_pos_errors = []
     final_yaw_errors = []
@@ -271,7 +273,7 @@ def plot_average_trajectory(results_dir, output_dir='trajectory_plots'):
 
 def main():
     # Set your results directory here
-    results_dir = '/Users/shambhavisingh/rob/PVnRT/src/CL-CBS/build/optimal_test1'
+    results_dir = '/Users/shambhavisingh/rob/PVnRT/src/CL-CBS/build/optimal_correct_test9'
 
     # Plot average trajectory
     print("=" * 80)

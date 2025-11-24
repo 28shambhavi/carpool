@@ -178,7 +178,30 @@ def plot_full_result_v2(result, object_twist, length, breadth,
 
     xs = list(all_x) + list(all_fx) + [-length/2.0, length/2.0]
     ys = list(all_y) + list(all_fy) + [-breadth/2.0, breadth/2.0]
+    # Replace this section in plot_full_result_v2:
 
+    if "object_twist" in result or True:  # Force using object_twist parameter
+        print("Using object_twist")
+        vx, vy, omega = map(float, object_twist)
+        print(f"object_twist (body frame) = [{vx}, {vy}, {omega}]")
+        dt = float(displacement_dt) * float(displacement_scale)
+        print(f"dt = {dt}")
+
+        # Integrate body-frame twist to global pose
+        theta = omega * dt
+
+        if abs(omega) < 1e-9:  # Pure translation (no rotation)
+            tx = vx * dt
+            ty = vy * dt
+        else:  # General case with rotation
+            # Exact integration formula for constant body-frame twist
+            tx = (vx * np.sin(theta) - vy * (1 - np.cos(theta))) / omega
+            ty = (vx * (1 - np.cos(theta)) + vy * np.sin(theta)) / omega
+
+        print(f"Calculated displacement (global frame): tx={tx}, ty={ty}, theta={theta}")
+        R = rotation_matrix(theta)
+        transformed = (R @ corners.T).T + np.array([tx, ty])
+        drawn_displaced = True
     # include displaced rectangle extents if drawn
     if drawn_displaced:
         # close the polygon for plotting
@@ -238,7 +261,7 @@ def plot_single_problem():
     y_length = 0.6
     lo = LoadOptimization(sweep=False, object_shape=(x_length, y_length))
 
-    object_twist= [0.0, 0.9, 0.6]
+    object_twist= [0.0, 1.0, 0.2]
     # object_twist[0.66774278 - 0.03713503
     # 0.74346524]
     # object

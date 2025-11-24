@@ -16,8 +16,8 @@ class MPCPathTracker:
 
     # Cost matrices
     R = np.diag([0.01, 0.01])  # input cost
-    Rd = np.diag([0.01, 1.0])  # input difference cost
-    Q = np.diag([1.0, 1.0, 0.5, 0.5])  # state cost
+    Rd = np.diag([0.01, 0.75])  # input difference cost
+    Q = np.diag([1.0, 1.0, 0.5, 0.75])  # state cost
     Qf = Q  # terminal state cost
 
     # Iteration parameters

@@ -14,7 +14,7 @@ STATIC_FRICTION_COEFF_MU = 0.6
 FLOOR_FRICTION_COEFF_MU = 0.6
 PUSHER_LENGTH = 0.2965
 BUMPER_LENGTH = 0.2
-MIN_DIST_BW_CARS = 0.2
+MIN_DIST_BW_CARS = 0.7
 FORCE_UB = STATIC_FRICTION_COEFF_MU * 1 * 9.81
 FORCE_LB = 0
 
@@ -210,20 +210,20 @@ class LoadOptimization:
                 p2_y = (positions[2][1] + positions[3][1]) * 0.5
 
 
-                # if move == 'lateral':
-                #     if p1_y < 0:
-                #         p1_y = -p1_y
-                #         p1_heading = -np.pi
-                #     else:
-                #         p1_y = -p1_y
-                #         p1_heading = -np.pi
+                if move == 'lateral':
+                    if p1_x < 0:
+                        p1_heading = 0
+                        p1_x = p1_x - PUSHER_LENGTH * 1.1
+                    else:
+                        p1_heading = np.pi
+                        p1_x = p1_x + PUSHER_LENGTH * 1.1
                     
-                #     if p2_y < 0:
-                #         p2_y = -p2_y
-                #         p2_heading = 0
-                #     else:
-                #         p2_y = -p2_y
-                #         p2_heading = 0
+                    if p2_x < 0:
+                        p2_heading = 0
+                        p2_x = p2_x - PUSHER_LENGTH * 1.1
+                    else:
+                        p2_heading = np.pi
+                        p2_x = p2_x + PUSHER_LENGTH * 1.1
                     
                     
                 #     if p1_y < 0:    
@@ -252,12 +252,12 @@ class LoadOptimization:
                 #     else:
                 #         p2_heading = 0
                 #         p2_x = p2_x - PUSHER_LENGTH * 0.75
-                pdb.set_trace()
+                # pdb.set_trace()
                 car1_pose = object_frame_to_global_frame((p1_x, p1_y, wrap(p1_heading)), object_global_pose)
                 car2_pose = object_frame_to_global_frame((p2_x, p2_y, wrap(p2_heading)), object_global_pose)
-                if car1_pose is not None and car2_pose is not None:
-                    self.plot_global_poses_with_yaw(object_global_pose, car1_pose, car2_pose, arc, curr_car1_pose, curr_car2_pose)
-                    plt.show()
+                # if car1_pose is not None and car2_pose is not None:
+                #     self.plot_global_poses_with_yaw(object_global_pose, car1_pose, car2_pose, arc, curr_car1_pose, curr_car2_pose)
+                #     plt.show()
                 return car1_pose, car2_pose
 
         return None, None
@@ -367,8 +367,8 @@ class LoadOptimization:
         # Top surface (s=1, p_y=+half): car pushes downward → heading=(0,-1) → d=0
         # Bottom surface (s=0, p_y=-half): car pushes upward → heading=(0,+1) → d=1
         # This gives: s + d = 1
-        model.addConstr(s1 == d1, name="heading_towards_object_1")
-        model.addConstr(s2 == d2, name="heading_towards_object_2")
+        model.addConstr(s1 + d1 == 1, name="heading_towards_object_1")
+        model.addConstr(s2 + d2 == 1, name="heading_towards_object_2")
 
         # CONSEQUENCE: With d1==d2 and s1+d1==1 and s2+d2==1:
         # → s1 + d1 = s2 + d2
@@ -399,8 +399,8 @@ class LoadOptimization:
         # Normal/tangent decomposition
         n1_unit = model.addVar(lb=-1, ub=1, name="n1_unit")
         n2_unit = model.addVar(lb=-1, ub=1, name="n2_unit")
-        model.addConstr(n1_unit == 2 * s1 - 1, name="n1_unit_def")
-        model.addConstr(n2_unit == 2 * s2 - 1, name="n2_unit_def")
+        model.addConstr(n1_unit == 1 - 2 * s1, name="n1_unit_def")
+        model.addConstr(n2_unit == 1 - 2 * s2, name="n2_unit_def")
 
         t1_unit = model.addVar(lb=-1, ub=1, name="t1_unit")
         t2_unit = model.addVar(lb=-1, ub=1, name="t2_unit")
@@ -629,8 +629,8 @@ class LoadOptimization:
                     "car1_heading": np.array([c1.X, s1_sin.X]),
                     "car2_heading": np.array([c2.X, s2_sin.X]),
                 }
-                print(result)
-                pdb.set_trace()
+                # print(result)
+                # pdb.set_trace()
             else:
                 contacts = [
                     contact_entry("f1_l", p1_secondary.X, p1_l_primary.X,

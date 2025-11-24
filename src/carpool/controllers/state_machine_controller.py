@@ -89,7 +89,7 @@ class ControlStateMachine:
             start_x, start_y, start_theta, end_x, end_y, end_theta, k = self.current_arc
             dis = np.hypot(end_x - start_x, end_y - start_y)
             angle_diff = abs(_wrap(end_theta - start_theta))
-            if dis < 0.2 and angle_diff < np.deg2rad(5):
+            if dis < 0.1 and angle_diff < np.deg2rad(5):
                 print("Skipping tiny arc, moving to next")
                 if len(self.path_all_arcs) > 0:
                     self.current_arc = self.path_all_arcs.pop(0)
@@ -119,15 +119,15 @@ class ControlStateMachine:
         # Create MPC controllers
         self.car1_tracking_controller = MPCPathTracker(
             target_speed=0.32,
-            position_threshold=0.15,
-            angle_threshold=0.12
+            position_threshold=0.05,
+            angle_threshold=0.05
         )
         self.car1_tracking_controller.set_path(path1)
 
         self.car2_tracking_controller = MPCPathTracker(
             target_speed=0.32,
-            position_threshold=0.15,
-            angle_threshold=0.12
+            position_threshold=0.05,
+            angle_threshold=0.05
         )
         self.car2_tracking_controller.set_path(path2)
         print("relocation planning completed")
@@ -142,8 +142,11 @@ class ControlStateMachine:
         action2 = self.car2_tracking_controller.command(self.car2_pose)
 
         # Reasonable goal tolerances
-        if (self.car1_tracking_controller.is_goal_reached(self.car1_pose, pos_tol=0.2, angle_tol=0.1)
-                and self.car2_tracking_controller.is_goal_reached(self.car2_pose, pos_tol=0.2, angle_tol=0.1)):
+        if ((self.car1_tracking_controller.is_goal_reached(self.car1_pose, pos_tol=0.15, angle_tol=0.1)
+                and self.car2_tracking_controller.is_goal_reached(self.car2_pose, pos_tol=0.15, angle_tol=0.1))
+                or ((self.car1_tracking_controller.get_current_waypoint_index() == len(self.car1_tracking_controller.cx) - 1)
+                    and(self.car2_tracking_controller.get_current_waypoint_index() == len(self.car2_tracking_controller.cx) - 1))
+        ):
             self.at_pushing_pose = True
             self.state = GEN_ROBOT_PUSH_TRAJ
             print("Both cars reached pushing pose!")
@@ -156,7 +159,22 @@ class ControlStateMachine:
         if self.at_pushing_pose:
             self.state = GEN_ROBOT_PUSH_TRAJ
             return [0, 0, 0, 0]
-        self.car1_next_push_pose, self.car2_next_push_pose = self.optimizer.optimal_poses_for_arc(self.current_arc, self.block_pose, self.car1_pose, self.car2_pose)
+        pose1, pose2 = self.optimizer.optimal_poses_for_arc(self.current_arc, self.block_pose, self.car1_pose,
+                                                            self.car2_pose)
+        # allocate pose1 and pose2 to cars based on which has minimum distance.
+        car1_pose = self.car1_pose
+        car2_pose = self.car2_pose
+
+        dist_a = np.linalg.norm(pose1 - car1_pose) + np.linalg.norm(pose2 - car2_pose)
+        dist_b = np.linalg.norm(pose1 - car2_pose) + np.linalg.norm(pose2 - car1_pose)
+
+        if dist_a < dist_b:
+            self.car1_next_push_pose = pose1
+            self.car2_next_push_pose = pose2
+        else:
+            self.car1_next_push_pose = pose2
+            self.car2_next_push_pose = pose1
+
         print("optimized pushing poses", self.car1_next_push_pose, self.car2_next_push_pose)
         self.state = PLAN_CAR_RELOCATION
         # pdb.set_trace()
@@ -300,9 +318,13 @@ class ControlStateMachine:
 
     def _execute_pushing(self):
         # Check if object reached goal
+        # if np.hypot(self.block_pose[0] - self.goal[0],
+        #             self.block_pose[1] - self.goal[1]) < 0.65 and \
+        #         np.abs(self.block_pose[2] - self.goal[2]) < 0.25:
+        #     self.state = REACHED_GOAL
         if np.hypot(self.block_pose[0] - self.goal[0],
-                    self.block_pose[1] - self.goal[1]) < 0.1 and \
-                np.abs(self.block_pose[2] - self.goal[2]) < 0.05:
+                    self.block_pose[1] - self.goal[1]) < 0.35 and \
+                np.abs(self.block_pose[2] - self.goal[2]) < 0.20:
             self.state = REACHED_GOAL
             print("Object reached goal!")
             return [0, 0, 0, 0]
@@ -323,8 +345,8 @@ class ControlStateMachine:
         #         print("Switching to next arc")
         #         return [0, 0, 0, 0]
 
-        if ((self.car1_pushing_controller.is_goal_reached(self.car1_pose, pos_tol=0.2, angle_tol=0.15) and
-                self.car2_pushing_controller.is_goal_reached(self.car2_pose, pos_tol=0.2, angle_tol=0.15)) or
+        if ((self.car1_pushing_controller.is_goal_reached(self.car1_pose, pos_tol=0.1, angle_tol=0.05) and
+                self.car2_pushing_controller.is_goal_reached(self.car2_pose, pos_tol=0.1, angle_tol=0.05)) or
             ((self.car1_pushing_controller.get_current_waypoint_index() == len(self.car1_pushing_controller.cx) - 1) and
              (self.car2_pushing_controller.get_current_waypoint_index() == len(self.car2_pushing_controller.cx) - 1))):
             # print("Current arc complete, deciding next action...")
@@ -335,6 +357,7 @@ class ControlStateMachine:
             else:
                 self.current_arc = self.path_all_arcs.pop(0)
                 self.state = OPTIMIZE_PUSHING_POSES
+                self.at_pushing_pose = False
                 print("Switching to next arc")
                 return [0, 0, 0, 0]
 
