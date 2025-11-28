@@ -224,8 +224,8 @@ def plot_average_trajectory(results_dir, output_dir='trajectory_plots'):
     plot_rectangle(ax, 0.0, 1.0, 0, color='green',
                    label='Goal', width=2.0, height=0.6, alpha=0.3, fill=True)
     # obstacles
-    plot_rectangle(ax, 0.0, -0.8, 0, color='black',
-                   label='obs1', width=1.1, height=1.1, alpha=0.3, fill=True)
+    plot_rectangle(ax, 0.0, -0.6, 0, color='black',
+                   label='obs1', width=0.8, height=0.8, alpha=0.3, fill=True)
     # plot_rectangle(ax, 0.8, -1.2, 0, color='black',
     #                label='obs2', width=0.6, height=0.6, alpha=0.3, fill=True)
     # Calculate average errors

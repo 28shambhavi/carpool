@@ -477,8 +477,8 @@ class HybridAStar:
                     out.append((sx - map_max_x / 2.0, sy - map_max_y / 2.0, syaw,
                                 ex - map_max_x / 2.0, ey - map_max_y / 2.0, eyaw, k))
                 # print(out)
-                # plot_map(self.obstacles, (length, width), start, goal, out)
-                # plt.show()
+                plot_map(self.obstacles, (length, width), start, goal, out)
+                plt.show()
                 return out
 
             for nb in expand(node):
@@ -494,9 +494,9 @@ class HybridAStar:
 
 if __name__ == '__main__':
     planning_start = time.time()
-    rectangular_object = (float(2), float(0.4))
+    rectangular_object = (float(0.4), float(2))
 
-    obj_planner = HybridAStar((5, 5), [], rectangular_object, 1, 0.2, 0.1, 0.2)
-    object_path_arcs = obj_planner.hybrid_a_star_planner((0.0, 2.0, 1.57), (0.0, 0.0, 1.57))
+    obj_planner = HybridAStar((4, 6), [], rectangular_object, 1, 0.2, 0.1, 0.2)
+    object_path_arcs = obj_planner.hybrid_a_star_planner((0.8, -1.4, np.pi/2), (0.8, 1.4, np.pi/2))
     print(object_path_arcs)
     plt.show()

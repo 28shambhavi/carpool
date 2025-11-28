@@ -7,8 +7,6 @@ from gurobipy import GRB
 import matplotlib.pyplot as plt
 import numpy as np
 
-
-
 DYNAMIC_FRICTION_COEFF_MU = 0.6
 STATIC_FRICTION_COEFF_MU = 0.6
 FLOOR_FRICTION_COEFF_MU = 0.6

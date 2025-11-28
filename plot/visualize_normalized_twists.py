@@ -357,14 +357,14 @@ def plot_sphere_with_holes(list_of_twists, df=None, color_by=None,
 
     # Labels based on frame
     if frame == 'body':
-        ax.set_xlabel('vx (forward)', fontsize=10)
-        ax.set_ylabel('vy (lateral)', fontsize=10)
-        ax.set_zlabel('omega', fontsize=10)
+        ax.set_xlabel('vx (forward)', fontsize=20)
+        ax.set_ylabel('vy (lateral)', fontsize=20)
+        ax.set_zlabel('omega', fontsize=20)
         ax.set_title(f'Feasible Twist Space (body frame)\nthreshold={threshold:.3f}', fontsize=12)
     else:
-        ax.set_xlabel('vx', fontsize=10)
-        ax.set_ylabel('vy', fontsize=10)
-        ax.set_zlabel('omega', fontsize=10)
+        ax.set_xlabel('vx', fontsize=20)
+        ax.set_ylabel('vy', fontsize=20)
+        ax.set_zlabel('omega', fontsize=20)
         ax.set_title(f'Feasible Twist Space (global frame)\nthreshold={threshold:.3f}', fontsize=12)
 
     # Set equal aspect ratio
